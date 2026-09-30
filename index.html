@@ -92,6 +92,7 @@
     let progressLen = 30, onProgress = null;
     let outputs = [];   // { clipIndex, platform, blob, name, clip }
     let plan = null;
+    let mediaCache = { key: '', audio: null, frames: null };
 
     // ---------- logging / status ----------
     ffmpeg.on('log', ({ message }) => {
@@ -164,9 +165,45 @@
         headers: { 'x-goog-api-key': $('apiKey').value.trim(), 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error?.message || `HTTP ${res.status}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err = new Error(data?.error?.message || `HTTP ${res.status}`);
+        err.status = res.status;
+        throw err;
+      }
       return (data?.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('');
+    }
+
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    const isBusy = e => [429, 500, 503, 504].includes(e.status) || /high demand|overloaded|unavailable|try again/i.test(e.message);
+    const isNoQuota = e => /limit: 0/.test(e.message);
+
+    // Try the chosen model with retries, then fall back to other Flash models on this key
+    async function geminiRobust(body, onInfo) {
+      const chosen = $('model').value || LS.get('geminiModel');
+      if (!chosen) throw new Error('Click "Test key" first to pick a model.');
+      let others = [];
+      try { others = JSON.parse(LS.get('geminiModels') || '[]').filter(m => m !== chosen); } catch {}
+      const models = [chosen, ...others].slice(0, 5);
+      let lastErr;
+      for (const model of models) {
+        for (const wait of [0, 5, 15, 30]) {
+          if (wait) {
+            for (let s = wait; s > 0; s--) { onInfo(`${model} is busy, retrying in ${s}s...`); await sleep(1000); }
+          }
+          try {
+            onInfo(`AI (${model}) is watching and picking the best moments (can take 30–90s)...`);
+            const text = await geminiCall(model, body);
+            if (model !== chosen) { LS.set('geminiModel', model); $('model').value = model; }
+            return text;
+          } catch (e) {
+            lastErr = e;
+            console.warn(model, e.message);
+            if (isNoQuota(e) || !isBusy(e)) break;   // not a temporary problem: move to next model
+          }
+        }
+      }
+      throw lastErr;
     }
 
     $('testKey').addEventListener('click', async () => {
@@ -293,19 +330,17 @@ Return the clips in the order they appear in the video.`;
       required: ['clips'],
     };
 
-    async function getPlan(audio, frames) {
+    async function getPlan(audio, frames, onInfo) {
       const parts = [{ inline_data: { mime_type: 'audio/mp3', data: await blobToBase64(new Blob([audio.buffer], { type: 'audio/mp3' })) } }];
       for (const f of frames) {
         parts.push({ text: `Snapshot at ${f.t.toFixed(1)}s:` });
         parts.push({ inline_data: { mime_type: 'image/jpeg', data: f.b64 } });
       }
       parts.push({ text: planPrompt() });
-      const model = $('model').value || LS.get('geminiModel');
-      if (!model) throw new Error('Click "Test key" first to pick a model.');
-      const text = await geminiCall(model, {
+      const text = await geminiRobust({
         contents: [{ parts }],
         generationConfig: { responseMimeType: 'application/json', responseSchema: PLAN_SCHEMA, temperature: 0.7 },
-      });
+      }, onInfo);
       return cleanPlan(JSON.parse(text));
     }
 
@@ -409,18 +444,24 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
           plan = JSON.parse(cached);
           step(`Reusing saved AI plan for this video (${plan.clips.length} clips)`, 'done');
         } else {
-          let st = step('Extracting audio...');
-          const audio = await extractAudio(st);
-          st.done(`Audio extracted (${(audio.data.length / 1024 / 1024).toFixed(1)} MB at ${audio.kbps} kbps)`);
-
-          st = step('Taking snapshots...');
-          const frames = await extractFrames(st);
-          st.done(`${frames.length} snapshots taken`);
+          let st;
+          if (mediaCache.key !== cacheKey) {
+            st = step('Extracting audio...');
+            const audio = await extractAudio(st);
+            st.done(`Audio extracted (${(audio.data.length / 1024 / 1024).toFixed(1)} MB at ${audio.kbps} kbps)`);
+            st = step('Taking snapshots...');
+            const frames = await extractFrames(st);
+            st.done(`${frames.length} snapshots taken`);
+            mediaCache = { key: cacheKey, audio, frames };
+          } else {
+            step('Reusing audio + snapshots from last try', 'done');
+          }
+          const { audio, frames } = mediaCache;
 
           st = step('AI is watching and picking the best moments (can take 30–90s)...');
-          plan = await getPlan(audio.data, frames);
+          plan = await getPlan(audio.data, frames, t => { st.update(t); status('🤖 ' + t); });
           LS.set(cacheKey, JSON.stringify(plan));
-          st.done(`AI picked ${plan.clips.length} clips`);
+          st.done(`AI (${$('model').value}) picked ${plan.clips.length} clips`);
         }
 
         const total = plan.clips.length * 2;
