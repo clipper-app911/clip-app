@@ -202,24 +202,37 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
           .filter(n => n.includes('flash') && !/tts|image|live|audio|embedding/.test(n))
           .sort().reverse();
         if (!models.length) throw new Error('No Flash models available on this key.');
-        LS.set('geminiKey', key);
-        LS.set('geminiModels', JSON.stringify(models));
-        const prev = LS.get('geminiModel');
-        const pick = models.includes(prev) ? prev : models[0];
-        fillModels(models, pick);
-        LS.set('geminiModel', pick);
 
-        // Quick real test call
-        $('keyStatus').textContent = `Found ${models.length} Flash models. Sending a test prompt to ${pick}...`;
-        const r2 = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${pick}:generateContent`, {
-          method: 'POST',
-          headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ contents: [{ parts: [{ text: 'Reply with exactly: KEY WORKS' }] }] })
-        });
-        const d2 = await r2.json();
-        if (!r2.ok) throw new Error(d2?.error?.message || r2.status);
-        const reply = d2?.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '(empty)';
-        $('keyStatus').textContent = `✅ Key saved | ${models.length} Flash models | ${pick} replied: "${reply.trim()}"`;
+        // Rank: standard "gemini-<version>-flash" first (newest first), then flash-lite, then the rest
+        const ver = n => parseFloat((n.match(/^gemini-(\d+(?:\.\d+)?)/) || [0, 0])[1]);
+        const rank = n => /^gemini-\d+(\.\d+)?-flash$/.test(n) ? 0
+                        : /^gemini-\d+(\.\d+)?-flash-lite$/.test(n) ? 1
+                        : /^gemini-\d/.test(n) && !/preview|exp/.test(n) ? 2 : 3;
+        models.sort((x, y) => rank(x) - rank(y) || ver(y) - ver(x));
+        LS.set('geminiKey', key);
+
+        // Try each model with a tiny prompt; keep the first one that works on the free tier
+        const working = [];
+        for (const m of models.slice(0, 8)) {
+          $('keyStatus').textContent = `Trying ${m}...`;
+          const r2 = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`, {
+            method: 'POST',
+            headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contents: [{ parts: [{ text: 'Reply with exactly: KEY WORKS' }] }] })
+          });
+          const d2 = await r2.json();
+          if (r2.ok) {
+            const reply = d2?.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '(empty)';
+            working.push(m);
+            LS.set('geminiModel', m);
+            LS.set('geminiModels', JSON.stringify([m, ...models.filter(x => x !== m)]));
+            fillModels([m, ...models.filter(x => x !== m)], m);
+            $('keyStatus').textContent = `✅ Key saved | Using ${m} (free tier OK) | replied: "${reply.trim()}"`;
+            break;
+          }
+          console.warn(m, d2?.error?.message);
+        }
+        if (!working.length) throw new Error('None of the first 8 Flash models worked on the free tier. Check the Console (F12) for details.');
       } catch (e) {
         console.error(e);
         $('keyStatus').textContent = '❌ ' + (e?.message || e);
