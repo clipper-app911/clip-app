@@ -17,7 +17,6 @@
     a#download { display: none; color: #6cf; font-weight: bold; }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.15/dist/umd/ffmpeg.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.2/dist/umd/index.js"></script>
 </head>
 <body>
   <h1>🎬 Clip App</h1>
@@ -40,7 +39,8 @@
 
   <script>
     const { FFmpeg } = FFmpegWASM;
-    const { toBlobURL } = FFmpegUtil;
+    const toBlobURL = async (url, type) =>
+      URL.createObjectURL(new Blob([await (await fetch(url)).arrayBuffer()], { type }));
     const ffmpeg = new FFmpeg();
     const $ = id => document.getElementById(id);
     let file = null, mounted = false;
