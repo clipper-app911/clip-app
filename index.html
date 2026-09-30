@@ -12,17 +12,19 @@
     .row { margin: 12px 0; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
     input[type=number] { width: 80px; padding: 4px; }
     select { padding: 4px; }
+    textarea { width: 100%; height: 110px; background: #222; color: #eee; border: 1px solid #444; border-radius: 6px; padding: 8px; font-family: monospace; box-sizing: border-box; }
     button { padding: 8px 16px; cursor: pointer; }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
     #status { color: #6cf; margin: 8px 0; }
     #log { background: #000; color: #8f8; font-size: 11px; height: 160px; overflow-y: auto; padding: 8px; white-space: pre-wrap; border-radius: 6px; }
     a#download { display: none; color: #6cf; font-weight: bold; }
+    .hint { color: #999; font-size: 0.85rem; }
   </style>
   <script src="ffmpeg.js"></script>
 </head>
 <body>
   <h1>🎬 Clip App</h1>
-  <p>Step 3a: crop a clip to vertical 9:16 and measure speed.</p>
+  <p>Step 3b: vertical clip with burned-in captions and a CTA at the end.</p>
 
   <input type="file" id="fileInput" accept="video/*">
   <div id="info"></div>
@@ -30,14 +32,29 @@
 
   <div class="row">
     <label>Start (sec): <input type="number" id="start" value="60" min="0"></label>
-    <label>Length (sec): <input type="number" id="len" value="30" min="1"></label>
+    <label>Length (sec): <input type="number" id="len" value="30" min="5"></label>
     <label>Output:
       <select id="res">
-        <option value="720:1280">720×1280 (faster)</option>
-        <option value="1080:1920">1080×1920 (full quality)</option>
+        <option value="720:1280">720×1280 (recommended)</option>
+        <option value="1080:1920">1080×1920 (slow)</option>
       </select>
     </label>
-    <button id="cutBtn" disabled>Make vertical clip</button>
+    <label>Platform:
+      <select id="platform">
+        <option value="youtube">YouTube Shorts</option>
+        <option value="facebook">Facebook Reels</option>
+      </select>
+    </label>
+  </div>
+
+  <p><b>Sample captions</b> <span class="hint">(one per line: start-end | text, seconds from the clip's start. Whisper will fill this in automatically in step 4.)</span></p>
+  <textarea id="captions">0-3 | This place looks unreal
+3-6 | Crystal clear water everywhere
+6-10 | And it gets even better
+10-14 | Wait until you see this view</textarea>
+
+  <div class="row">
+    <button id="cutBtn" disabled>Make clip with captions + CTA</button>
   </div>
 
   <div id="status">Loading ffmpeg...</div>
@@ -51,18 +68,26 @@
       URL.createObjectURL(new Blob([await (await fetch(url)).arrayBuffer()], { type }));
     const ffmpeg = new FFmpeg();
     const $ = id => document.getElementById(id);
-    let file = null, mounted = false, t0 = 0;
+    let file = null, mounted = false, t0 = 0, clipLen = 30;
+
+    const CTA = {
+      youtube: 'COMMENT BELOW\\NLIKE & SUBSCRIBE',
+      facebook: 'COMMENT BELOW\\NLIKE & FOLLOW',
+    };
+    const CTA_SECONDS = 4;
 
     ffmpeg.on('log', ({ message }) => {
       $('log').textContent += message + '\n';
       $('log').scrollTop = $('log').scrollHeight;
     });
 
-    ffmpeg.on('progress', ({ progress }) => {
-      if (progress > 0 && progress <= 1) {
+    // Progress based on the clip's length (time is in microseconds)
+    ffmpeg.on('progress', ({ time }) => {
+      const p = Math.min(time / 1e6 / clipLen, 1);
+      if (p > 0) {
         const elapsed = (performance.now() - t0) / 1000;
-        const eta = elapsed / progress - elapsed;
-        $('status').textContent = `⚙️ Encoding... ${(progress * 100).toFixed(0)}% | ${elapsed.toFixed(0)}s elapsed | ~${eta.toFixed(0)}s left`;
+        const eta = elapsed / p - elapsed;
+        $('status').textContent = `⚙️ Encoding... ${(p * 100).toFixed(0)}% | ${elapsed.toFixed(0)}s elapsed | ~${eta.toFixed(0)}s left`;
       }
     });
 
@@ -73,10 +98,52 @@
         wasmURL: await toBlobURL(`${core}/ffmpeg-core.wasm`, 'application/wasm'),
       });
       await ffmpeg.createDir('/input');
-      $('status').textContent = '✅ ffmpeg loaded. Pick a video.';
+      await ffmpeg.createDir('/fonts');
+      $('status').textContent = 'Loading caption font...';
+      const font = await fetch('https://raw.githubusercontent.com/google/fonts/main/ofl/anton/Anton-Regular.ttf');
+      await ffmpeg.writeFile('/fonts/Anton-Regular.ttf', new Uint8Array(await font.arrayBuffer()));
+      $('status').textContent = '✅ ffmpeg + font loaded. Pick a video.';
       if (file) $('cutBtn').disabled = false;
     }
-    loadFFmpeg().catch(e => { console.error(e); $('status').textContent = '❌ ffmpeg failed to load: ' + (e?.message || e); });
+    loadFFmpeg().catch(e => { console.error(e); $('status').textContent = '❌ Failed to load: ' + (e?.message || e); });
+
+    // seconds -> ASS time format h:mm:ss.cc
+    function assTime(s) {
+      s = Math.max(0, s);
+      const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sec = (s % 60).toFixed(2).padStart(5, '0');
+      return `${h}:${String(m).padStart(2, '0')}:${sec}`;
+    }
+
+    function buildASS(captionText, len, platform) {
+      const header = `[Script Info]
+ScriptType: v4.00+
+PlayResX: 720
+PlayResY: 1280
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Caption,Anton,72,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,1,0,1,5,2,2,60,60,330,1
+Style: CTA,Anton,84,&H0000E5FF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,1,0,1,6,3,5,50,50,0,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+`;
+      const ctaStart = len - CTA_SECONDS;
+      const lines = [];
+      for (const raw of captionText.split('\n')) {
+        const m = raw.match(/^\s*([\d.]+)\s*-\s*([\d.]+)\s*\|\s*(.+)$/);
+        if (!m) continue;
+        const s = parseFloat(m[1]);
+        const e = Math.min(parseFloat(m[2]), ctaStart); // captions stop when the CTA starts
+        if (e <= s) continue;
+        const text = m[3].trim().toUpperCase().replace(/[{}]/g, '');
+        lines.push(`Dialogue: 0,${assTime(s)},${assTime(e)},Caption,,0,0,0,,${text}`);
+      }
+      lines.push(`Dialogue: 1,${assTime(ctaStart)},${assTime(len)},CTA,,0,0,0,,{\\fad(250,0)\\fscx80\\fscy80\\t(0,250,\\fscx100\\fscy100)}${CTA[platform]}`);
+      return header + lines.join('\n') + '\n';
+    }
 
     $('fileInput').addEventListener('change', () => {
       file = $('fileInput').files[0];
@@ -91,16 +158,19 @@
       $('cutBtn').disabled = true;
       $('log').textContent = '';
       const [w, h] = $('res').value.split(':');
+      const platform = $('platform').value;
+      clipLen = parseFloat($('len').value);
       t0 = performance.now();
       try {
         if (mounted) await ffmpeg.unmount('/input');
         await ffmpeg.mount('WORKERFS', { files: [file] }, '/input');
         mounted = true;
+        await ffmpeg.writeFile('subs.ass', buildASS($('captions').value, clipLen, platform));
         $('status').textContent = '⚙️ Encoding... starting';
         await ffmpeg.exec([
           '-ss', $('start').value, '-i', `/input/${file.name}`,
-          '-t', $('len').value,
-          '-vf', `crop=ih*9/16:ih,scale=${w}:${h}`,
+          '-t', String(clipLen),
+          '-vf', `crop=ih*9/16:ih,scale=${w}:${h},subtitles=subs.ass:fontsdir=/fonts`,
           '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
           '-c:a', 'copy', '-movflags', '+faststart',
           'clip.mp4'
@@ -111,10 +181,10 @@
         $('output').src = url;
         $('output').style.display = 'block';
         $('download').href = url;
-        $('download').download = `vertical-${w}x${h}.mp4`;
+        $('download').download = `${platform}-clip-${w}x${h}.mp4`;
         $('download').style.display = 'inline';
         const secs = ((performance.now() - t0) / 1000).toFixed(1);
-        $('status').textContent = `✅ Done in ${secs}s | ${w}×${h} | Clip size: ${(data.length / 1024 / 1024).toFixed(1)} MB`;
+        $('status').textContent = `✅ Done in ${secs}s | ${platform} | ${w}×${h} | ${(data.length / 1024 / 1024).toFixed(1)} MB`;
       } catch (e) {
         console.error(e);
         $('status').textContent = '❌ Error: ' + (e?.message || e);
