@@ -7,35 +7,97 @@
   <style>
     body { font-family: system-ui, sans-serif; max-width: 800px; margin: 40px auto; padding: 0 16px; background: #111; color: #eee; }
     h1 { font-size: 1.5rem; }
-    input[type=file] { margin: 16px 0; }
-    video { width: 100%; max-height: 450px; background: #000; border-radius: 8px; display: none; }
-    #info { margin-top: 12px; font-size: 0.9rem; color: #aaa; }
+    video { width: 100%; max-height: 400px; background: #000; border-radius: 8px; display: none; margin-top: 12px; }
+    .row { margin: 12px 0; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+    input[type=number] { width: 80px; padding: 4px; }
+    button { padding: 8px 16px; cursor: pointer; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    #status { color: #6cf; margin: 8px 0; }
+    #log { background: #000; color: #8f8; font-size: 11px; height: 160px; overflow-y: auto; padding: 8px; white-space: pre-wrap; border-radius: 6px; }
+    a#download { display: none; color: #6cf; font-weight: bold; }
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.15/dist/umd/ffmpeg.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.2/dist/umd/index.js"></script>
 </head>
 <body>
   <h1>🎬 Clip App</h1>
-  <p>Step 1: load a video to check it plays.</p>
+  <p>Step 2: cut one test clip with ffmpeg.</p>
 
   <input type="file" id="fileInput" accept="video/*">
-  <video id="player" controls></video>
   <div id="info"></div>
+  <video id="player" controls></video>
+
+  <div class="row">
+    <label>Start (sec): <input type="number" id="start" value="60" min="0"></label>
+    <label>Length (sec): <input type="number" id="len" value="30" min="1"></label>
+    <button id="cutBtn" disabled>Cut test clip</button>
+  </div>
+
+  <div id="status">Loading ffmpeg...</div>
+  <video id="output" controls></video>
+  <p><a id="download">⬇ Download clip</a></p>
+  <div id="log"></div>
 
   <script>
-    const fileInput = document.getElementById('fileInput');
-    const player = document.getElementById('player');
-    const info = document.getElementById('info');
+    const { FFmpeg } = FFmpegWASM;
+    const { toBlobURL } = FFmpegUtil;
+    const ffmpeg = new FFmpeg();
+    const $ = id => document.getElementById(id);
+    let file = null, mounted = false;
 
-    fileInput.addEventListener('change', () => {
-      const file = fileInput.files[0];
+    ffmpeg.on('log', ({ message }) => {
+      $('log').textContent += message + '\n';
+      $('log').scrollTop = $('log').scrollHeight;
+    });
+
+    async function loadFFmpeg() {
+      const core = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd';
+      await ffmpeg.load({
+        classWorkerURL: await toBlobURL('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.15/dist/umd/814.ffmpeg.js', 'text/javascript'),
+        coreURL: await toBlobURL(`${core}/ffmpeg-core.js`, 'text/javascript'),
+        wasmURL: await toBlobURL(`${core}/ffmpeg-core.wasm`, 'application/wasm'),
+      });
+      await ffmpeg.createDir('/input');
+      $('status').textContent = '✅ ffmpeg loaded. Pick a video.';
+      if (file) $('cutBtn').disabled = false;
+    }
+    loadFFmpeg().catch(e => $('status').textContent = '❌ ffmpeg failed to load: ' + e.message);
+
+    $('fileInput').addEventListener('change', () => {
+      file = $('fileInput').files[0];
       if (!file) return;
-      player.src = URL.createObjectURL(file);
-      player.style.display = 'block';
-      player.onloadedmetadata = () => {
-        const mins = Math.floor(player.duration / 60);
-        const secs = Math.floor(player.duration % 60);
-        const sizeMB = (file.size / 1024 / 1024).toFixed(1);
-        info.textContent = `File: ${file.name} | Size: ${sizeMB} MB | Length: ${mins}m ${secs}s | Resolution: ${player.videoWidth}x${player.videoHeight}`;
-      };
+      $('player').src = URL.createObjectURL(file);
+      $('player').style.display = 'block';
+      $('info').textContent = `File: ${file.name} | ${(file.size / 1024 / 1024).toFixed(1)} MB`;
+      if (ffmpeg.loaded) $('cutBtn').disabled = false;
+    });
+
+    $('cutBtn').addEventListener('click', async () => {
+      $('cutBtn').disabled = true;
+      $('log').textContent = '';
+      const t0 = performance.now();
+      try {
+        if (mounted) await ffmpeg.unmount('/input');
+        await ffmpeg.mount('WORKERFS', { files: [file] }, '/input');
+        mounted = true;
+        $('status').textContent = '✂️ Cutting...';
+        await ffmpeg.exec([
+          '-ss', $('start').value, '-i', `/input/${file.name}`,
+          '-t', $('len').value, '-c', 'copy', '-avoid_negative_ts', 'make_zero', 'clip.mp4'
+        ]);
+        const data = await ffmpeg.readFile('clip.mp4');
+        const url = URL.createObjectURL(new Blob([data.buffer], { type: 'video/mp4' }));
+        $('output').src = url;
+        $('output').style.display = 'block';
+        $('download').href = url;
+        $('download').download = 'test-clip.mp4';
+        $('download').style.display = 'inline';
+        const secs = ((performance.now() - t0) / 1000).toFixed(1);
+        $('status').textContent = `✅ Done in ${secs}s | Clip size: ${(data.length / 1024 / 1024).toFixed(1)} MB`;
+      } catch (e) {
+        $('status').textContent = '❌ Error: ' + e.message;
+      }
+      $('cutBtn').disabled = false;
     });
   </script>
 </body>
