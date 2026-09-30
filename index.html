@@ -5,117 +5,118 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Clip App</title>
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 800px; margin: 40px auto; padding: 0 16px; background: #111; color: #eee; }
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 16px; background: #111; color: #eee; }
     h1 { font-size: 1.5rem; }
-    video { width: 100%; max-height: 400px; background: #000; border-radius: 8px; display: none; margin-top: 12px; }
-    #output { width: auto; max-width: 100%; height: 480px; max-height: none; }
-    .row { margin: 12px 0; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
-    input[type=number] { width: 80px; padding: 4px; }
-    select { padding: 4px; }
-    textarea { width: 100%; height: 110px; background: #222; color: #eee; border: 1px solid #444; border-radius: 6px; padding: 8px; font-family: monospace; box-sizing: border-box; }
+    .box { background: #1b1b1b; border: 1px solid #333; border-radius: 8px; padding: 12px; margin-bottom: 16px; }
+    .row { margin: 10px 0; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+    select, input[type=text], input[type=password] { padding: 6px; }
     button { padding: 8px 16px; cursor: pointer; }
+    button.big { padding: 12px 24px; font-size: 1.05rem; font-weight: bold; background: #2563eb; color: #fff; border: 0; border-radius: 6px; }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
-    #status { color: #6cf; margin: 8px 0; }
-    #log { background: #000; color: #8f8; font-size: 11px; height: 160px; overflow-y: auto; padding: 8px; white-space: pre-wrap; border-radius: 6px; }
-    a#download { display: none; color: #6cf; font-weight: bold; }
+    video#player { width: 100%; max-height: 360px; background: #000; border-radius: 8px; display: none; margin-top: 12px; }
+    #status { color: #6cf; margin: 10px 0; font-size: 1.05rem; }
+    #steps div { margin: 2px 0; color: #aaa; }
+    #steps div.done { color: #8f8; } #steps div.active { color: #6cf; } #steps div.fail { color: #f88; }
+    #results { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+    .card { background: #1b1b1b; border: 1px solid #333; border-radius: 8px; padding: 10px; }
+    .card h3 { font-size: 0.95rem; margin: 0 0 6px; }
+    .card .meta { font-size: 0.8rem; color: #aaa; margin-bottom: 6px; }
+    .card video { width: 100%; aspect-ratio: 9/16; background: #000; border-radius: 6px; }
+    .card a { color: #6cf; font-size: 0.85rem; margin-right: 10px; }
+    #zipBtn { display: none; background: #16a34a; }
     .hint { color: #999; font-size: 0.85rem; }
+    details { margin-top: 16px; }
+    #log { background: #000; color: #8f8; font-size: 11px; height: 180px; overflow-y: auto; padding: 8px; white-space: pre-wrap; border-radius: 6px; }
   </style>
   <script src="ffmpeg.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 </head>
 <body>
   <h1>🎬 Clip App</h1>
-  <p>Step 4a: connect your Gemini API key.</p>
+  <p>Step 4b: upload a video → AI picks 5 moments → 10 clips (YouTube Shorts + Facebook Reels) → download.</p>
 
-  <div id="settings" style="background:#1b1b1b;border:1px solid #333;border-radius:8px;padding:12px;margin-bottom:16px;">
-    <b>⚙️ Gemini settings</b> <span class="hint">(your key is saved only in this browser, never in GitHub)</span>
+  <div class="box">
+    <b>⚙️ Gemini settings</b> <span class="hint">(key is saved only in this browser, never in GitHub)</span>
     <div class="row">
-      <input type="password" id="apiKey" placeholder="Paste your Gemini API key (AIza...)" style="flex:1;min-width:240px;padding:6px;">
+      <input type="password" id="apiKey" placeholder="Paste your Gemini API key (AIza...)" style="flex:1;min-width:240px;">
       <button id="testKey">Test key</button>
     </div>
     <div class="row">
       <label>Model: <select id="model"><option value="">(test key to load models)</option></select></label>
+      <label>Output:
+        <select id="res">
+          <option value="720:1280">720×1280 (recommended)</option>
+          <option value="1080:1920">1080×1920 (much slower)</option>
+        </select>
+      </label>
     </div>
     <div id="keyStatus" class="hint"></div>
   </div>
 
-  <input type="file" id="fileInput" accept="video/*">
-  <div id="info"></div>
-  <video id="player" controls></video>
-
-  <div class="row">
-    <label>Start (sec): <input type="number" id="start" value="60" min="0"></label>
-    <label>Length (sec): <input type="number" id="len" value="30" min="5"></label>
-    <label>Output:
-      <select id="res">
-        <option value="720:1280">720×1280 (recommended)</option>
-        <option value="1080:1920">1080×1920 (slow)</option>
-      </select>
-    </label>
-    <label>Platform:
-      <select id="platform">
-        <option value="youtube">YouTube Shorts</option>
-        <option value="facebook">Facebook Reels</option>
-      </select>
-    </label>
+  <div class="box">
+    <input type="file" id="fileInput" accept="video/*">
+    <div id="info" class="hint"></div>
+    <video id="player" controls muted></video>
+    <div class="row">
+      <button id="goBtn" class="big" disabled>✨ Generate 10 clips</button>
+      <button id="zipBtn" class="big">⬇ Download all (ZIP)</button>
+    </div>
+    <div id="status">Loading ffmpeg...</div>
+    <div id="steps"></div>
   </div>
 
-  <p><b>CTA question</b> <span class="hint">(shown big in the last 4 seconds; AI will write one per clip later)</span></p>
-  <div class="row">
-    <select id="ctaPreset">
-      <option>WHERE DO YOU THINK THIS IS?</option>
-      <option>WOULD YOU GO HERE?</option>
-      <option>WHO WOULD YOU BRING HERE?</option>
-      <option>RATE THIS VIEW 1-10</option>
-      <option>HAVE YOU BEEN HERE?</option>
-      <option value="">✏️ Write my own...</option>
-    </select>
-    <input type="text" id="ctaQuestion" value="WHERE DO YOU THINK THIS IS?" style="flex:1;min-width:220px;padding:6px;">
-  </div>
+  <div id="results"></div>
 
-  <p><b>Sample captions</b> <span class="hint">(one per line: start-end | text, seconds from the clip's start. Whisper will fill this in automatically in step 4.)</span></p>
-  <textarea id="captions">0-3 | This place looks unreal
-3-6 | Crystal clear water everywhere
-6-10 | And it gets even better
-10-14 | Wait until you see this view</textarea>
-
-  <div class="row">
-    <button id="cutBtn" disabled>Make clip with captions + CTA</button>
-  </div>
-
-  <div id="status">Loading ffmpeg...</div>
-  <video id="output" controls></video>
-  <p><a id="download">⬇ Download clip</a></p>
-  <div id="log"></div>
+  <details>
+    <summary class="hint">Technical log</summary>
+    <div id="log"></div>
+  </details>
 
   <script>
     const { FFmpeg } = FFmpegWASM;
-    const toBlobURL = async (url, type) =>
-      URL.createObjectURL(new Blob([await (await fetch(url)).arrayBuffer()], { type }));
     const ffmpeg = new FFmpeg();
     const $ = id => document.getElementById(id);
-    let file = null, mounted = false, t0 = 0, clipLen = 30;
+    const toBlobURL = async (url, type) =>
+      URL.createObjectURL(new Blob([await (await fetch(url)).arrayBuffer()], { type }));
+    const LS = { get: k => { try { return localStorage.getItem(k) || ''; } catch { return ''; } },
+                 set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
 
-    const CTA_ACTION = {
-      youtube: 'COMMENT • LIKE • SUBSCRIBE',
-      facebook: 'COMMENT • LIKE • FOLLOW',
-    };
+    const NUM_CLIPS = 5;
     const CTA_SECONDS = 4;
+    const PLATFORMS = {
+      youtube:  { folder: 'youtube-shorts', label: 'YouTube Shorts', action: 'COMMENT • LIKE • SUBSCRIBE' },
+      facebook: { folder: 'facebook-reels', label: 'Facebook Reels', action: 'COMMENT • LIKE • FOLLOW' },
+    };
 
+    let file = null, duration = 0, mounted = false, busy = false;
+    let progressLen = 30, onProgress = null;
+    let outputs = [];   // { clipIndex, platform, blob, name, clip }
+    let plan = null;
+
+    // ---------- logging / status ----------
     ffmpeg.on('log', ({ message }) => {
-      $('log').textContent += message + '\n';
-      $('log').scrollTop = $('log').scrollHeight;
+      const log = $('log');
+      log.textContent += message + '\n';
+      if (log.textContent.length > 200000) log.textContent = log.textContent.slice(-100000);
+      log.scrollTop = log.scrollHeight;
     });
-
-    // Progress based on the clip's length (time is in microseconds)
     ffmpeg.on('progress', ({ time }) => {
-      const p = Math.min(time / 1e6 / clipLen, 1);
-      if (p > 0) {
-        const elapsed = (performance.now() - t0) / 1000;
-        const eta = elapsed / p - elapsed;
-        $('status').textContent = `⚙️ Encoding... ${(p * 100).toFixed(0)}% | ${elapsed.toFixed(0)}s elapsed | ~${eta.toFixed(0)}s left`;
-      }
+      const p = Math.min(Math.max(time / 1e6 / progressLen, 0), 1);
+      if (onProgress) onProgress(p);
     });
+    const status = t => $('status').textContent = t;
+    function step(text, state = 'active') {
+      const d = document.createElement('div');
+      d.className = state; d.textContent = (state === 'done' ? '✅ ' : state === 'fail' ? '❌ ' : '⏳ ') + text;
+      $('steps').appendChild(d);
+      return {
+        done: t => { d.className = 'done'; d.textContent = '✅ ' + (t || text); },
+        fail: t => { d.className = 'fail'; d.textContent = '❌ ' + (t || text); },
+        update: t => { d.textContent = '⏳ ' + t; },
+      };
+    }
 
+    // ---------- load ffmpeg + font ----------
     async function loadFFmpeg() {
       const core = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd';
       await ffmpeg.load({
@@ -124,22 +125,215 @@
       });
       await ffmpeg.createDir('/input');
       await ffmpeg.createDir('/fonts');
-      $('status').textContent = 'Loading caption font...';
+      status('Loading caption font...');
       const font = await fetch('https://raw.githubusercontent.com/google/fonts/main/ofl/anton/Anton-Regular.ttf');
       await ffmpeg.writeFile('/fonts/Anton-Regular.ttf', new Uint8Array(await font.arrayBuffer()));
-      $('status').textContent = '✅ ffmpeg + font loaded. Pick a video.';
-      if (file) $('cutBtn').disabled = false;
+      status('✅ Ready. Pick a video.');
+      updateGo();
     }
-    loadFFmpeg().catch(e => { console.error(e); $('status').textContent = '❌ Failed to load: ' + (e?.message || e); });
+    loadFFmpeg().catch(e => { console.error(e); status('❌ Failed to load: ' + (e?.message || e)); });
 
-    // seconds -> ASS time format h:mm:ss.cc
+    function updateGo() { $('goBtn').disabled = !(ffmpeg.loaded && file && duration > 0 && !busy); }
+
+    $('fileInput').addEventListener('change', () => {
+      file = $('fileInput').files[0];
+      duration = 0;
+      if (!file) return updateGo();
+      $('player').src = URL.createObjectURL(file);
+      $('player').style.display = 'block';
+      $('player').onloadedmetadata = () => {
+        duration = $('player').duration;
+        $('info').textContent = `${file.name} | ${(file.size / 1024 / 1024).toFixed(1)} MB | ${Math.floor(duration / 60)}m ${Math.floor(duration % 60)}s | ${$('player').videoWidth}×${$('player').videoHeight}`;
+        updateGo();
+      };
+    });
+
+    // ---------- Gemini settings ----------
+    $('apiKey').value = LS.get('geminiKey');
+    function fillModels(models, selected) {
+      $('model').innerHTML = models.map(m => `<option value="${m}" ${m === selected ? 'selected' : ''}>${m}</option>`).join('');
+    }
+    if (LS.get('geminiModels')) fillModels(JSON.parse(LS.get('geminiModels')), LS.get('geminiModel'));
+    $('model').addEventListener('change', () => LS.set('geminiModel', $('model').value));
+    $('apiKey').addEventListener('change', () => LS.set('geminiKey', $('apiKey').value.trim()));
+
+    const GEMINI = 'https://generativelanguage.googleapis.com/v1beta';
+    async function geminiCall(model, body) {
+      const res = await fetch(`${GEMINI}/models/${model}:generateContent`, {
+        method: 'POST',
+        headers: { 'x-goog-api-key': $('apiKey').value.trim(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error?.message || `HTTP ${res.status}`);
+      return (data?.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('');
+    }
+
+    $('testKey').addEventListener('click', async () => {
+      const key = $('apiKey').value.trim();
+      if (!key) { $('keyStatus').textContent = '❌ Paste your key first.'; return; }
+      LS.set('geminiKey', key);
+      $('keyStatus').textContent = 'Testing...';
+      try {
+        const res = await fetch(`${GEMINI}/models?pageSize=200`, { headers: { 'x-goog-api-key': key } });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error?.message || res.status);
+        const models = (data.models || [])
+          .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+          .map(m => m.name.replace('models/', ''))
+          .filter(n => n.includes('flash') && !/tts|image|live|audio|embedding/.test(n));
+        const ver = n => parseFloat((n.match(/^gemini-(\d+(?:\.\d+)?)/) || [0, 0])[1]);
+        const rank = n => /^gemini-\d+(\.\d+)?-flash$/.test(n) ? 0
+                        : /^gemini-\d+(\.\d+)?-flash-lite$/.test(n) ? 1
+                        : /^gemini-\d/.test(n) && !/preview|exp/.test(n) ? 2 : 3;
+        models.sort((x, y) => rank(x) - rank(y) || ver(y) - ver(x));
+        for (const m of models.slice(0, 8)) {
+          $('keyStatus').textContent = `Trying ${m}...`;
+          try {
+            await geminiCall(m, { contents: [{ parts: [{ text: 'Reply with exactly: KEY WORKS' }] }] });
+            const list = [m, ...models.filter(x => x !== m)];
+            LS.set('geminiModel', m); LS.set('geminiModels', JSON.stringify(list));
+            fillModels(list, m);
+            $('keyStatus').textContent = `✅ Key saved | Using ${m} (free tier OK)`;
+            return;
+          } catch (e) { console.warn(m, e.message); }
+        }
+        throw new Error('No Flash model worked on the free tier. See Console (F12).');
+      } catch (e) { $('keyStatus').textContent = '❌ ' + (e?.message || e); }
+    });
+
+    // ---------- helpers ----------
+    async function mountInput() {
+      if (mounted) await ffmpeg.unmount('/input');
+      await ffmpeg.mount('WORKERFS', { files: [file] }, '/input');
+      mounted = true;
+    }
+    const inputPath = () => `/input/${file.name}`;
+    const blobToBase64 = blob => new Promise((ok, bad) => {
+      const r = new FileReader();
+      r.onload = () => ok(r.result.split(',')[1]);
+      r.onerror = bad;
+      r.readAsDataURL(blob);
+    });
+    const fmt = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+    const slug = s => (s || 'clip').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'clip';
+
+    // ---------- 1. audio for Gemini ----------
+    async function extractAudio(st) {
+      // keep the upload under ~12 MB so the request stays under Gemini's 20 MB inline limit
+      const maxKbps = Math.floor(12e6 * 8 / duration / 1000);
+      const kbps = [48, 40, 32, 24, 16, 8].find(k => k <= maxKbps) || 8;
+      progressLen = duration;
+      onProgress = p => st.update(`Extracting audio... ${(p * 100).toFixed(0)}%`);
+      await ffmpeg.exec(['-i', inputPath(), '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'libmp3lame', '-b:a', `${kbps}k`, 'audio.mp3']);
+      onProgress = null;
+      const data = await ffmpeg.readFile('audio.mp3');
+      await ffmpeg.deleteFile('audio.mp3');
+      return { data, kbps };
+    }
+
+    // ---------- 2. snapshots for Gemini (helps with scenery / no-speech videos) ----------
+    async function extractFrames(st, count = 24) {
+      const frames = [];
+      for (let i = 0; i < count; i++) {
+        const t = duration * (i + 0.5) / count;
+        st.update(`Taking snapshots... ${i + 1}/${count}`);
+        await ffmpeg.exec(['-ss', t.toFixed(2), '-i', inputPath(), '-frames:v', '1', '-vf', 'scale=320:-2', '-q:v', '6', 'f.jpg']);
+        try {
+          const img = await ffmpeg.readFile('f.jpg');
+          await ffmpeg.deleteFile('f.jpg');
+          frames.push({ t, b64: await blobToBase64(new Blob([img.buffer], { type: 'image/jpeg' })) });
+        } catch { /* skip frame */ }
+      }
+      return frames;
+    }
+
+    // ---------- 3. ask Gemini for the clip plan ----------
+    function planPrompt() {
+      return `You are a viral short-form video editor. Above is the full audio of a ${Math.round(duration)}-second video, plus snapshots labeled with their timestamps.
+
+Pick the ${NUM_CLIPS} BEST moments to turn into vertical YouTube Shorts and Facebook Reels that will get the most views and comments.
+
+Rules for each clip:
+- 25 to 55 seconds long. Clips must NOT overlap. All start/end times are in seconds from the start of the FULL video.
+- Start on a strong hook within the first 2 seconds (a bold statement, surprising fact, question, or striking visual). Never start mid-sentence.
+- End at a natural pause (end of a sentence/thought). The last ${CTA_SECONDS} seconds will be covered by a call-to-action, so do not end on the key line.
+- Prefer moments that make sense on their own without the rest of the video.
+
+For each clip also write:
+- youtube_title: max 70 characters, curiosity-driven, no clickbait lies.
+- youtube_description: 1-2 sentences plus 3-5 relevant hashtags.
+- facebook_caption: a hook sentence, an engaging question, and 3-5 hashtags.
+- cta_question: a short engaging question (max 7 words) specific to THIS clip that makes viewers comment, e.g. "WHERE DO YOU THINK THIS IS?", "WOULD YOU GO HERE?", "WHO WOULD YOU BRING HERE?". No emojis.
+- captions: the words spoken in the clip, as short caption lines of 2 to 5 words, with start/end in seconds RELATIVE TO THE CLIP START (0 = clip start). Time them to match the speech as closely as possible. If nobody speaks, return an empty list.
+- why: one sentence on why this moment will perform well.
+
+Return the clips in the order they appear in the video.`;
+    }
+
+    const PLAN_SCHEMA = {
+      type: 'OBJECT',
+      properties: {
+        clips: {
+          type: 'ARRAY',
+          items: {
+            type: 'OBJECT',
+            properties: {
+              start: { type: 'NUMBER' }, end: { type: 'NUMBER' }, why: { type: 'STRING' },
+              youtube_title: { type: 'STRING' }, youtube_description: { type: 'STRING' },
+              facebook_caption: { type: 'STRING' }, cta_question: { type: 'STRING' },
+              captions: { type: 'ARRAY', items: { type: 'OBJECT',
+                properties: { start: { type: 'NUMBER' }, end: { type: 'NUMBER' }, text: { type: 'STRING' } },
+                required: ['start', 'end', 'text'] } },
+            },
+            required: ['start', 'end', 'why', 'youtube_title', 'youtube_description', 'facebook_caption', 'cta_question', 'captions'],
+          },
+        },
+      },
+      required: ['clips'],
+    };
+
+    async function getPlan(audio, frames) {
+      const parts = [{ inline_data: { mime_type: 'audio/mp3', data: await blobToBase64(new Blob([audio.buffer], { type: 'audio/mp3' })) } }];
+      for (const f of frames) {
+        parts.push({ text: `Snapshot at ${f.t.toFixed(1)}s:` });
+        parts.push({ inline_data: { mime_type: 'image/jpeg', data: f.b64 } });
+      }
+      parts.push({ text: planPrompt() });
+      const model = $('model').value || LS.get('geminiModel');
+      if (!model) throw new Error('Click "Test key" first to pick a model.');
+      const text = await geminiCall(model, {
+        contents: [{ parts }],
+        generationConfig: { responseMimeType: 'application/json', responseSchema: PLAN_SCHEMA, temperature: 0.7 },
+      });
+      return cleanPlan(JSON.parse(text));
+    }
+
+    function cleanPlan(raw) {
+      let clips = (raw.clips || []).map(c => {
+        let start = Math.max(0, Number(c.start) || 0);
+        let end = Math.min(duration, Number(c.end) || start + 30);
+        if (end - start < 12) end = Math.min(duration, start + 30);
+        if (end - start > 90) end = start + 90;
+        return { ...c, start, end, len: end - start, captions: Array.isArray(c.captions) ? c.captions : [] };
+      }).filter(c => c.len >= 12).sort((a, b) => a.start - b.start);
+      // drop overlaps
+      const out = [];
+      for (const c of clips) if (!out.length || c.start >= out[out.length - 1].end - 0.5) out.push(c);
+      if (!out.length) throw new Error('AI returned no usable clips. Try again.');
+      return { clips: out.slice(0, NUM_CLIPS) };
+    }
+
+    // ---------- 4. captions + CTA (ASS subtitles) ----------
     function assTime(s) {
       s = Math.max(0, s);
       const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sec = (s % 60).toFixed(2).padStart(5, '0');
       return `${h}:${String(m).padStart(2, '0')}:${sec}`;
     }
+    const assText = t => String(t || '').replace(/[{}\\]/g, '').replace(/\s+/g, ' ').trim().toUpperCase();
 
-    function buildASS(captionText, len, platform, question) {
+    function buildASS(clip, platform) {
+      const len = clip.len, ctaStart = len - CTA_SECONDS;
       const header = `[Script Info]
 ScriptType: v4.00+
 PlayResX: 720
@@ -155,141 +349,127 @@ Style: CTAQ,Anton,88,&H0000E5FF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 `;
-      const ctaStart = len - CTA_SECONDS;
       const lines = [];
-      for (const raw of captionText.split('\n')) {
-        const m = raw.match(/^\s*([\d.]+)\s*-\s*([\d.]+)\s*\|\s*(.+)$/);
-        if (!m) continue;
-        const s = parseFloat(m[1]);
-        const e = Math.min(parseFloat(m[2]), ctaStart); // captions stop when the CTA starts
-        if (e <= s) continue;
-        const text = m[3].trim().toUpperCase().replace(/[{}]/g, '');
-        lines.push(`Dialogue: 0,${assTime(s)},${assTime(e)},Caption,,0,0,0,,${text}`);
+      for (const c of clip.captions) {
+        const s = Math.max(0, Number(c.start) || 0);
+        const e = Math.min(Number(c.end) || s + 1.5, ctaStart);
+        const text = assText(c.text);
+        if (e > s && text) lines.push(`Dialogue: 0,${assTime(s)},${assTime(e)},Caption,,0,0,0,,${text}`);
       }
-      const q = (question || '').trim().toUpperCase().replace(/[{}\\]/g, '');
+      const q = assText(clip.cta_question);
       const pop = '{\\fad(250,0)\\fscx80\\fscy80\\t(0,250,\\fscx100\\fscy100)}';
-      // One centered block: big yellow question, then a smaller white action line under it
-      const action = `{\\fs46\\c&HFFFFFF&\\bord4}${CTA_ACTION[platform]}`;
+      const action = `{\\fs46\\c&HFFFFFF&\\bord4}${PLATFORMS[platform].action}`;
       lines.push(`Dialogue: 1,${assTime(ctaStart)},${assTime(len)},CTAQ,,0,0,0,,${pop}${q ? q + '\\N{\\fs24} \\N' : ''}${action}`);
       return header + lines.join('\n') + '\n';
     }
 
-    // ---------- Gemini settings ----------
-    const LS = { get: k => { try { return localStorage.getItem(k) || ''; } catch { return ''; } },
-                 set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
-    $('apiKey').value = LS.get('geminiKey');
-
-    function fillModels(models, selected) {
-      $('model').innerHTML = models.map(m => `<option value="${m}" ${m === selected ? 'selected' : ''}>${m}</option>`).join('');
-    }
-    const savedModels = LS.get('geminiModels');
-    if (savedModels) fillModels(JSON.parse(savedModels), LS.get('geminiModel'));
-    $('model').addEventListener('change', () => LS.set('geminiModel', $('model').value));
-
-    $('testKey').addEventListener('click', async () => {
-      const key = $('apiKey').value.trim();
-      if (!key) { $('keyStatus').textContent = '❌ Paste your key first.'; return; }
-      $('keyStatus').textContent = 'Testing...';
-      try {
-        const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', {
-          headers: { 'x-goog-api-key': key }
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data?.error?.message || res.status);
-        const models = (data.models || [])
-          .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
-          .map(m => m.name.replace('models/', ''))
-          .filter(n => n.includes('flash') && !/tts|image|live|audio|embedding/.test(n))
-          .sort().reverse();
-        if (!models.length) throw new Error('No Flash models available on this key.');
-
-        // Rank: standard "gemini-<version>-flash" first (newest first), then flash-lite, then the rest
-        const ver = n => parseFloat((n.match(/^gemini-(\d+(?:\.\d+)?)/) || [0, 0])[1]);
-        const rank = n => /^gemini-\d+(\.\d+)?-flash$/.test(n) ? 0
-                        : /^gemini-\d+(\.\d+)?-flash-lite$/.test(n) ? 1
-                        : /^gemini-\d/.test(n) && !/preview|exp/.test(n) ? 2 : 3;
-        models.sort((x, y) => rank(x) - rank(y) || ver(y) - ver(x));
-        LS.set('geminiKey', key);
-
-        // Try each model with a tiny prompt; keep the first one that works on the free tier
-        const working = [];
-        for (const m of models.slice(0, 8)) {
-          $('keyStatus').textContent = `Trying ${m}...`;
-          const r2 = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`, {
-            method: 'POST',
-            headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ contents: [{ parts: [{ text: 'Reply with exactly: KEY WORKS' }] }] })
-          });
-          const d2 = await r2.json();
-          if (r2.ok) {
-            const reply = d2?.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '(empty)';
-            working.push(m);
-            LS.set('geminiModel', m);
-            LS.set('geminiModels', JSON.stringify([m, ...models.filter(x => x !== m)]));
-            fillModels([m, ...models.filter(x => x !== m)], m);
-            $('keyStatus').textContent = `✅ Key saved | Using ${m} (free tier OK) | replied: "${reply.trim()}"`;
-            break;
-          }
-          console.warn(m, d2?.error?.message);
-        }
-        if (!working.length) throw new Error('None of the first 8 Flash models worked on the free tier. Check the Console (F12) for details.');
-      } catch (e) {
-        console.error(e);
-        $('keyStatus').textContent = '❌ ' + (e?.message || e);
-      }
-    });
-
-    $('ctaPreset').addEventListener('change', () => {
-      const v = $('ctaPreset').value;
-      $('ctaQuestion').value = v;
-      if (!v) $('ctaQuestion').focus();
-    });
-
-    $('fileInput').addEventListener('change', () => {
-      file = $('fileInput').files[0];
-      if (!file) return;
-      $('player').src = URL.createObjectURL(file);
-      $('player').style.display = 'block';
-      $('info').textContent = `File: ${file.name} | ${(file.size / 1024 / 1024).toFixed(1)} MB`;
-      if (ffmpeg.loaded) $('cutBtn').disabled = false;
-    });
-
-    $('cutBtn').addEventListener('click', async () => {
-      $('cutBtn').disabled = true;
-      $('log').textContent = '';
+    // ---------- 5. render one clip ----------
+    async function renderClip(clip, platform, onP) {
       const [w, h] = $('res').value.split(':');
-      const platform = $('platform').value;
-      clipLen = parseFloat($('len').value);
-      t0 = performance.now();
+      await ffmpeg.writeFile('subs.ass', buildASS(clip, platform));
+      progressLen = clip.len;
+      onProgress = onP;
+      await ffmpeg.exec([
+        '-ss', clip.start.toFixed(2), '-i', inputPath(), '-t', clip.len.toFixed(2),
+        '-vf', `crop=ih*9/16:ih,scale=${w}:${h},subtitles=subs.ass:fontsdir=/fonts`,
+        '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
+        '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', 'clip.mp4',
+      ]);
+      onProgress = null;
+      const data = await ffmpeg.readFile('clip.mp4');
+      await ffmpeg.deleteFile('clip.mp4');
+      return new Blob([data.buffer], { type: 'video/mp4' });
+    }
+
+    function addCard(o) {
+      const url = URL.createObjectURL(o.blob);
+      const c = o.clip, pf = PLATFORMS[o.platform];
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = `<h3>${pf.label} · Clip ${o.clipIndex + 1}</h3>
+        <div class="meta">${fmt(c.start)}–${fmt(c.end)} · ${Math.round(c.len)}s · ${(o.blob.size / 1024 / 1024).toFixed(1)} MB</div>
+        <video src="${url}" controls preload="metadata"></video>
+        <div class="meta"><b>${o.platform === 'youtube' ? c.youtube_title : c.facebook_caption}</b></div>
+        <a href="${url}" download="${o.name.split('/').pop()}">⬇ Download</a>`;
+      $('results').appendChild(card);
+    }
+
+    // ---------- main ----------
+    $('goBtn').addEventListener('click', async () => {
+      busy = true; updateGo();
+      $('steps').innerHTML = ''; $('results').innerHTML = ''; $('zipBtn').style.display = 'none';
+      outputs = []; plan = null;
+      const t0 = performance.now();
       try {
-        if (mounted) await ffmpeg.unmount('/input');
-        await ffmpeg.mount('WORKERFS', { files: [file] }, '/input');
-        mounted = true;
-        await ffmpeg.writeFile('subs.ass', buildASS($('captions').value, clipLen, platform, $('ctaQuestion').value));
-        $('status').textContent = '⚙️ Encoding... starting';
-        await ffmpeg.exec([
-          '-ss', $('start').value, '-i', `/input/${file.name}`,
-          '-t', String(clipLen),
-          '-vf', `crop=ih*9/16:ih,scale=${w}:${h},subtitles=subs.ass:fontsdir=/fonts`,
-          '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
-          '-c:a', 'copy', '-movflags', '+faststart',
-          'clip.mp4'
-        ]);
-        const data = await ffmpeg.readFile('clip.mp4');
-        await ffmpeg.deleteFile('clip.mp4');
-        const url = URL.createObjectURL(new Blob([data.buffer], { type: 'video/mp4' }));
-        $('output').src = url;
-        $('output').style.display = 'block';
-        $('download').href = url;
-        $('download').download = `${platform}-clip-${w}x${h}.mp4`;
-        $('download').style.display = 'inline';
-        const secs = ((performance.now() - t0) / 1000).toFixed(1);
-        $('status').textContent = `✅ Done in ${secs}s | ${platform} | ${w}×${h} | ${(data.length / 1024 / 1024).toFixed(1)} MB`;
+        await mountInput();
+
+        const cacheKey = `plan:${file.name}:${file.size}`;
+        const cached = LS.get(cacheKey);
+        if (cached) {
+          plan = JSON.parse(cached);
+          step(`Reusing saved AI plan for this video (${plan.clips.length} clips)`, 'done');
+        } else {
+          let st = step('Extracting audio...');
+          const audio = await extractAudio(st);
+          st.done(`Audio extracted (${(audio.data.length / 1024 / 1024).toFixed(1)} MB at ${audio.kbps} kbps)`);
+
+          st = step('Taking snapshots...');
+          const frames = await extractFrames(st);
+          st.done(`${frames.length} snapshots taken`);
+
+          st = step('AI is watching and picking the best moments (can take 30–90s)...');
+          plan = await getPlan(audio.data, frames);
+          LS.set(cacheKey, JSON.stringify(plan));
+          st.done(`AI picked ${plan.clips.length} clips`);
+        }
+
+        const total = plan.clips.length * 2;
+        let n = 0;
+        for (let i = 0; i < plan.clips.length; i++) {
+          const clip = plan.clips[i];
+          for (const platform of Object.keys(PLATFORMS)) {
+            n++;
+            const label = `Rendering ${n}/${total}: clip ${i + 1} · ${PLATFORMS[platform].label}`;
+            const st = step(label);
+            const blob = await renderClip(clip, platform, p => {
+              st.update(`${label} · ${(p * 100).toFixed(0)}%`);
+              status(`⚙️ ${label} · ${(p * 100).toFixed(0)}%`);
+            });
+            const name = `${PLATFORMS[platform].folder}/clip-${i + 1}-${slug(clip.youtube_title)}.mp4`;
+            const o = { clipIndex: i, platform, blob, name, clip };
+            outputs.push(o); addCard(o);
+            st.done(`${label} (${(blob.size / 1024 / 1024).toFixed(1)} MB)`);
+          }
+        }
+        const mins = ((performance.now() - t0) / 60000).toFixed(1);
+        status(`✅ Done! ${outputs.length} clips in ${mins} min. Download them below or as one ZIP.`);
+        $('zipBtn').style.display = 'inline-block';
       } catch (e) {
         console.error(e);
-        $('status').textContent = '❌ Error: ' + (e?.message || e);
+        status('❌ ' + (e?.message || e));
+        step(e?.message || String(e), 'fail');
       }
-      $('cutBtn').disabled = false;
+      busy = false; updateGo();
+    });
+
+    // ---------- ZIP ----------
+    $('zipBtn').addEventListener('click', async () => {
+      $('zipBtn').disabled = true;
+      status('Building ZIP...');
+      const zip = new JSZip();
+      for (const o of outputs) zip.file(o.name, o.blob, { compression: 'STORE' });
+      const yt = plan.clips.map((c, i) => `CLIP ${i + 1} (${fmt(c.start)}–${fmt(c.end)})\nTITLE: ${c.youtube_title}\nDESCRIPTION: ${c.youtube_description}\n`).join('\n');
+      const fb = plan.clips.map((c, i) => `CLIP ${i + 1} (${fmt(c.start)}–${fmt(c.end)})\nCAPTION: ${c.facebook_caption}\n`).join('\n');
+      zip.file('youtube-shorts/captions.txt', yt);
+      zip.file('facebook-reels/captions.txt', fb);
+      zip.file('clip-plan.json', JSON.stringify(plan, null, 2));
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${slug(file.name.replace(/\.[^.]+$/, ''))}-clips.zip`;
+      a.click();
+      status('✅ ZIP downloaded.');
+      $('zipBtn').disabled = false;
     });
   </script>
 </body>
