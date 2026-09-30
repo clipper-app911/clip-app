@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Clip App</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 800px; margin: 40px auto; padding: 0 16px; background: #111; color: #eee; }
+    h1 { font-size: 1.5rem; }
+    input[type=file] { margin: 16px 0; }
+    video { width: 100%; max-height: 450px; background: #000; border-radius: 8px; display: none; }
+    #info { margin-top: 12px; font-size: 0.9rem; color: #aaa; }
+  </style>
+</head>
+<body>
+  <h1>🎬 Clip App</h1>
+  <p>Step 1: load a video to check it plays.</p>
+
+  <input type="file" id="fileInput" accept="video/*">
+  <video id="player" controls></video>
+  <div id="info"></div>
+
+  <script>
+    const fileInput = document.getElementById('fileInput');
+    const player = document.getElementById('player');
+    const info = document.getElementById('info');
+
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files[0];
+      if (!file) return;
+      player.src = URL.createObjectURL(file);
+      player.style.display = 'block';
+      player.onloadedmetadata = () => {
+        const mins = Math.floor(player.duration / 60);
+        const secs = Math.floor(player.duration % 60);
+        const sizeMB = (file.size / 1024 / 1024).toFixed(1);
+        info.textContent = `File: ${file.name} | Size: ${sizeMB} MB | Length: ${mins}m ${secs}s | Resolution: ${player.videoWidth}x${player.videoHeight}`;
+      };
+    });
+  </script>
+</body>
+</html>
