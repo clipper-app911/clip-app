@@ -24,7 +24,19 @@
 </head>
 <body>
   <h1>🎬 Clip App</h1>
-  <p>Step 3b: vertical clip with burned-in captions and a CTA at the end.</p>
+  <p>Step 4a: connect your Gemini API key.</p>
+
+  <div id="settings" style="background:#1b1b1b;border:1px solid #333;border-radius:8px;padding:12px;margin-bottom:16px;">
+    <b>⚙️ Gemini settings</b> <span class="hint">(your key is saved only in this browser, never in GitHub)</span>
+    <div class="row">
+      <input type="password" id="apiKey" placeholder="Paste your Gemini API key (AIza...)" style="flex:1;min-width:240px;padding:6px;">
+      <button id="testKey">Test key</button>
+    </div>
+    <div class="row">
+      <label>Model: <select id="model"><option value="">(test key to load models)</option></select></label>
+    </div>
+    <div id="keyStatus" class="hint"></div>
+  </div>
 
   <input type="file" id="fileInput" accept="video/*">
   <div id="info"></div>
@@ -45,6 +57,19 @@
         <option value="facebook">Facebook Reels</option>
       </select>
     </label>
+  </div>
+
+  <p><b>CTA question</b> <span class="hint">(shown big in the last 4 seconds; AI will write one per clip later)</span></p>
+  <div class="row">
+    <select id="ctaPreset">
+      <option>WHERE DO YOU THINK THIS IS?</option>
+      <option>WOULD YOU GO HERE?</option>
+      <option>WHO WOULD YOU BRING HERE?</option>
+      <option>RATE THIS VIEW 1-10</option>
+      <option>HAVE YOU BEEN HERE?</option>
+      <option value="">✏️ Write my own...</option>
+    </select>
+    <input type="text" id="ctaQuestion" value="WHERE DO YOU THINK THIS IS?" style="flex:1;min-width:220px;padding:6px;">
   </div>
 
   <p><b>Sample captions</b> <span class="hint">(one per line: start-end | text, seconds from the clip's start. Whisper will fill this in automatically in step 4.)</span></p>
@@ -70,9 +95,9 @@
     const $ = id => document.getElementById(id);
     let file = null, mounted = false, t0 = 0, clipLen = 30;
 
-    const CTA = {
-      youtube: 'COMMENT BELOW\\NLIKE & SUBSCRIBE',
-      facebook: 'COMMENT BELOW\\NLIKE & FOLLOW',
+    const CTA_ACTION = {
+      youtube: 'COMMENT • LIKE • SUBSCRIBE',
+      facebook: 'COMMENT • LIKE • FOLLOW',
     };
     const CTA_SECONDS = 4;
 
@@ -114,7 +139,7 @@
       return `${h}:${String(m).padStart(2, '0')}:${sec}`;
     }
 
-    function buildASS(captionText, len, platform) {
+    function buildASS(captionText, len, platform, question) {
       const header = `[Script Info]
 ScriptType: v4.00+
 PlayResX: 720
@@ -125,7 +150,7 @@ ScaledBorderAndShadow: yes
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Caption,Anton,72,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,1,0,1,5,2,2,60,60,330,1
-Style: CTA,Anton,84,&H0000E5FF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,1,0,1,6,3,5,50,50,0,1
+Style: CTAQ,Anton,88,&H0000E5FF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,1,0,1,6,3,5,60,60,0,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -141,9 +166,71 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         const text = m[3].trim().toUpperCase().replace(/[{}]/g, '');
         lines.push(`Dialogue: 0,${assTime(s)},${assTime(e)},Caption,,0,0,0,,${text}`);
       }
-      lines.push(`Dialogue: 1,${assTime(ctaStart)},${assTime(len)},CTA,,0,0,0,,{\\fad(250,0)\\fscx80\\fscy80\\t(0,250,\\fscx100\\fscy100)}${CTA[platform]}`);
+      const q = (question || '').trim().toUpperCase().replace(/[{}\\]/g, '');
+      const pop = '{\\fad(250,0)\\fscx80\\fscy80\\t(0,250,\\fscx100\\fscy100)}';
+      // One centered block: big yellow question, then a smaller white action line under it
+      const action = `{\\fs46\\c&HFFFFFF&\\bord4}${CTA_ACTION[platform]}`;
+      lines.push(`Dialogue: 1,${assTime(ctaStart)},${assTime(len)},CTAQ,,0,0,0,,${pop}${q ? q + '\\N{\\fs24} \\N' : ''}${action}`);
       return header + lines.join('\n') + '\n';
     }
+
+    // ---------- Gemini settings ----------
+    const LS = { get: k => { try { return localStorage.getItem(k) || ''; } catch { return ''; } },
+                 set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
+    $('apiKey').value = LS.get('geminiKey');
+
+    function fillModels(models, selected) {
+      $('model').innerHTML = models.map(m => `<option value="${m}" ${m === selected ? 'selected' : ''}>${m}</option>`).join('');
+    }
+    const savedModels = LS.get('geminiModels');
+    if (savedModels) fillModels(JSON.parse(savedModels), LS.get('geminiModel'));
+    $('model').addEventListener('change', () => LS.set('geminiModel', $('model').value));
+
+    $('testKey').addEventListener('click', async () => {
+      const key = $('apiKey').value.trim();
+      if (!key) { $('keyStatus').textContent = '❌ Paste your key first.'; return; }
+      $('keyStatus').textContent = 'Testing...';
+      try {
+        const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', {
+          headers: { 'x-goog-api-key': key }
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error?.message || res.status);
+        const models = (data.models || [])
+          .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+          .map(m => m.name.replace('models/', ''))
+          .filter(n => n.includes('flash') && !/tts|image|live|audio|embedding/.test(n))
+          .sort().reverse();
+        if (!models.length) throw new Error('No Flash models available on this key.');
+        LS.set('geminiKey', key);
+        LS.set('geminiModels', JSON.stringify(models));
+        const prev = LS.get('geminiModel');
+        const pick = models.includes(prev) ? prev : models[0];
+        fillModels(models, pick);
+        LS.set('geminiModel', pick);
+
+        // Quick real test call
+        $('keyStatus').textContent = `Found ${models.length} Flash models. Sending a test prompt to ${pick}...`;
+        const r2 = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${pick}:generateContent`, {
+          method: 'POST',
+          headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contents: [{ parts: [{ text: 'Reply with exactly: KEY WORKS' }] }] })
+        });
+        const d2 = await r2.json();
+        if (!r2.ok) throw new Error(d2?.error?.message || r2.status);
+        const reply = d2?.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '(empty)';
+        $('keyStatus').textContent = `✅ Key saved | ${models.length} Flash models | ${pick} replied: "${reply.trim()}"`;
+      } catch (e) {
+        console.error(e);
+        $('keyStatus').textContent = '❌ ' + (e?.message || e);
+      }
+    });
+
+    $('ctaPreset').addEventListener('change', () => {
+      const v = $('ctaPreset').value;
+      $('ctaQuestion').value = v;
+      if (!v) $('ctaQuestion').focus();
+    });
 
     $('fileInput').addEventListener('change', () => {
       file = $('fileInput').files[0];
@@ -165,7 +252,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         if (mounted) await ffmpeg.unmount('/input');
         await ffmpeg.mount('WORKERFS', { files: [file] }, '/input');
         mounted = true;
-        await ffmpeg.writeFile('subs.ass', buildASS($('captions').value, clipLen, platform));
+        await ffmpeg.writeFile('subs.ass', buildASS($('captions').value, clipLen, platform, $('ctaQuestion').value));
         $('status').textContent = '⚙️ Encoding... starting';
         await ffmpeg.exec([
           '-ss', $('start').value, '-i', `/input/${file.name}`,
