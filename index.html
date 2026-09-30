@@ -16,7 +16,7 @@
     #log { background: #000; color: #8f8; font-size: 11px; height: 160px; overflow-y: auto; padding: 8px; white-space: pre-wrap; border-radius: 6px; }
     a#download { display: none; color: #6cf; font-weight: bold; }
   </style>
-  <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.15/dist/umd/ffmpeg.js"></script>
+  <script src="ffmpeg.js"></script>
 </head>
 <body>
   <h1>🎬 Clip App</h1>
@@ -53,7 +53,6 @@
     async function loadFFmpeg() {
       const core = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd';
       await ffmpeg.load({
-        classWorkerURL: await toBlobURL('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.15/dist/umd/814.ffmpeg.js', 'text/javascript'),
         coreURL: await toBlobURL(`${core}/ffmpeg-core.js`, 'text/javascript'),
         wasmURL: await toBlobURL(`${core}/ffmpeg-core.wasm`, 'application/wasm'),
       });
@@ -61,7 +60,7 @@
       $('status').textContent = '✅ ffmpeg loaded. Pick a video.';
       if (file) $('cutBtn').disabled = false;
     }
-    loadFFmpeg().catch(e => $('status').textContent = '❌ ffmpeg failed to load: ' + e.message);
+    loadFFmpeg().catch(e => { console.error(e); $('status').textContent = '❌ ffmpeg failed to load: ' + (e?.message || e); });
 
     $('fileInput').addEventListener('change', () => {
       file = $('fileInput').files[0];
