@@ -178,28 +178,74 @@
     const isBusy = e => [429, 500, 503, 504].includes(e.status) || /high demand|overloaded|unavailable|try again/i.test(e.message);
     const isNoQuota = e => /limit: 0/.test(e.message);
 
-    // Try the chosen model with retries, then fall back to other Flash models on this key
+    // Rank Flash models: standard "gemini-X-flash" newest first, then flash-lite, then others
+    const ver = n => parseFloat((n.match(/^gemini-(\d+(?:\.\d+)?)/) || [0, 0])[1]);
+    const rank = n => /^gemini-\d+(\.\d+)?-flash$/.test(n) ? 0
+                    : /^gemini-\d+(\.\d+)?-flash-lite$/.test(n) ? 1
+                    : /^gemini-\d/.test(n) && !/preview|exp/.test(n) ? 2 : 3;
+    async function listFlashModels() {
+      const res = await fetch(`${GEMINI}/models?pageSize=200`, { headers: { 'x-goog-api-key': $('apiKey').value.trim() } });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error?.message || res.status);
+      return (data.models || [])
+        .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+        .map(m => m.name.replace('models/', ''))
+        .filter(n => n.includes('flash') && !/tts|image|live|audio|embedding/.test(n))
+        .sort((x, y) => rank(x) - rank(y) || ver(y) - ver(x));
+    }
+    const isRetired = e => /no longer available|not found|deprecated|is not supported|update your code/i.test(e.message) || e.status === 404;
+    const suggestedModel = (e, current) => (e.message.match(/models\/(gemini-[\w.-]+)/g) || [])
+      .map(x => x.replace('models/', '').replace(/[.]$/, '')).find(m => /flash/.test(m) && m !== current);
+
+    function saveWorkingModel(model) {
+      let list = [];
+      try { list = JSON.parse(LS.get('geminiModels') || '[]'); } catch {}
+      list = [model, ...list.filter(m => m !== model)];
+      LS.set('geminiModel', model); LS.set('geminiModels', JSON.stringify(list));
+      fillModels(list, model);
+    }
+
+    // Try the chosen model with retries; follow Google's suggested replacement for retired models;
+    // fall back to other Flash models; finally re-discover what the key can use now.
     async function geminiRobust(body, onInfo) {
       const chosen = $('model').value || LS.get('geminiModel');
       if (!chosen) throw new Error('Click "Test key" first to pick a model.');
-      let others = [];
-      try { others = JSON.parse(LS.get('geminiModels') || '[]').filter(m => m !== chosen); } catch {}
-      const models = [chosen, ...others].slice(0, 5);
-      let lastErr;
-      for (const model of models) {
+      let saved = [];
+      try { saved = JSON.parse(LS.get('geminiModels') || '[]'); } catch {}
+      const queue = [chosen, ...saved.filter(m => m !== chosen)].slice(0, 5);
+      const tried = new Set();
+      let lastErr, rediscovered = false;
+
+      while (true) {
+        const model = queue.shift();
+        if (!model) {
+          if (rediscovered) break;
+          rediscovered = true;
+          onInfo('Checking which models your key can use now...');
+          try { (await listFlashModels()).filter(m => !tried.has(m)).slice(0, 4).forEach(m => queue.push(m)); }
+          catch (e) { console.warn('model list failed', e.message); }
+          if (!queue.length) break;
+          continue;
+        }
+        if (tried.has(model)) continue;
+        tried.add(model);
+
         for (const wait of [0, 5, 15, 30]) {
-          if (wait) {
-            for (let s = wait; s > 0; s--) { onInfo(`${model} is busy, retrying in ${s}s...`); await sleep(1000); }
-          }
+          if (wait) for (let s = wait; s > 0; s--) { onInfo(`${model} is busy, retrying in ${s}s...`); await sleep(1000); }
           try {
             onInfo(`AI (${model}) is watching and picking the best moments (can take 30–90s)...`);
             const text = await geminiCall(model, body);
-            if (model !== chosen) { LS.set('geminiModel', model); $('model').value = model; }
+            saveWorkingModel(model);
             return text;
           } catch (e) {
             lastErr = e;
             console.warn(model, e.message);
-            if (isNoQuota(e) || !isBusy(e)) break;   // not a temporary problem: move to next model
+            if (isRetired(e)) {
+              const sug = suggestedModel(e, model);
+              if (sug && !tried.has(sug)) { onInfo(`${model} was retired by Google, switching to ${sug}...`); queue.unshift(sug); }
+              break;
+            }
+            if (isNoQuota(e) || !isBusy(e)) break;
           }
         }
       }
@@ -212,18 +258,7 @@
       LS.set('geminiKey', key);
       $('keyStatus').textContent = 'Testing...';
       try {
-        const res = await fetch(`${GEMINI}/models?pageSize=200`, { headers: { 'x-goog-api-key': key } });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data?.error?.message || res.status);
-        const models = (data.models || [])
-          .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
-          .map(m => m.name.replace('models/', ''))
-          .filter(n => n.includes('flash') && !/tts|image|live|audio|embedding/.test(n));
-        const ver = n => parseFloat((n.match(/^gemini-(\d+(?:\.\d+)?)/) || [0, 0])[1]);
-        const rank = n => /^gemini-\d+(\.\d+)?-flash$/.test(n) ? 0
-                        : /^gemini-\d+(\.\d+)?-flash-lite$/.test(n) ? 1
-                        : /^gemini-\d/.test(n) && !/preview|exp/.test(n) ? 2 : 3;
-        models.sort((x, y) => rank(x) - rank(y) || ver(y) - ver(x));
+        const models = await listFlashModels();
         for (const m of models.slice(0, 8)) {
           $('keyStatus').textContent = `Trying ${m}...`;
           try {
