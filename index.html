@@ -42,6 +42,22 @@
     #zipBtn { display: none; background: #16a34a; }
     .hint { color: #999; font-size: 0.85rem; }
     details { margin-top: 16px; }
+    .upload-btn { background: #2563eb; color: #fff; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: bold; }
+    .drop { border: 2px dashed #444; border-radius: 8px; padding: 18px; text-align: center; color: #888; margin: 8px 0; }
+    .drop.over { border-color: #2563eb; color: #6cf; background: #172033; }
+    .tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+    .tabs button { background: #222; color: #ccc; border: 1px solid #333; border-radius: 6px; }
+    .tabs button.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+    #libGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; margin-top: 10px; }
+    .lib-card { background: #1b1b1b; border: 1px solid #333; border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+    .lib-card video { width: 100%; max-height: 160px; background: #000; border-radius: 6px; }
+    .lib-card audio { width: 100%; }
+    .lib-card .name { font-weight: bold; font-size: 0.9rem; word-break: break-word; }
+    .lib-card select, .lib-card input { width: 100%; box-sizing: border-box; padding: 5px; background: #222; color: #eee; border: 1px solid #444; border-radius: 4px; }
+    .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+    .chip { font-size: 0.75rem; padding: 3px 8px; border-radius: 12px; background: #242424; color: #aaa; border: 1px solid #333; cursor: pointer; user-select: none; }
+    .chip.on { background: #1e3a8a; color: #fff; border-color: #2563eb; }
+    .lib-card .del { background: transparent; color: #f88; border: 1px solid #533; border-radius: 4px; padding: 4px; font-size: 0.8rem; }
     #log { background: #000; color: #8f8; font-size: 11px; height: 180px; overflow-y: auto; padding: 8px; white-space: pre-wrap; border-radius: 6px; }
   </style>
   <script src="ffmpeg.js"></script>
@@ -95,7 +111,25 @@
     <section id="view-library" class="view">
       <h1>📚 Library</h1>
       <p class="hint">Your memes, sound effects and royalty-free music, saved in this browser.</p>
-      <div class="box"><b>🚧 Coming in step 2.</b></div>
+      <div class="box">
+        <div class="row">
+          <label class="upload-btn">➕ Add files<input type="file" id="libFiles" multiple accept="video/*,audio/*,image/gif" hidden></label>
+          <span class="hint">Videos → Meme clips · audio under 15s → Sound effects · longer audio → Music</span>
+        </div>
+        <div id="libDrop" class="drop">or drag & drop files here</div>
+        <div id="libStatus" class="hint"></div>
+        <div id="libUsage" class="hint"></div>
+      </div>
+      <div class="row">
+        <div id="libTabs" class="tabs">
+          <button data-type="all" class="active">All</button>
+          <button data-type="meme">🎞️ Meme clips</button>
+          <button data-type="sfx">🔊 Sound effects</button>
+          <button data-type="music">🎵 Music</button>
+        </div>
+        <input type="text" id="libSearch" placeholder="🔍 Search name or tag..." style="flex:1;min-width:180px;">
+      </div>
+      <div id="libGrid"></div>
     </section>
 
     <!-- ⚙️ SETTINGS -->
@@ -607,6 +641,173 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
       status('✅ ZIP downloaded.');
       $('zipBtn').disabled = false;
     });
+
+
+    // =====================================================================
+    // 📚 LIBRARY (stored in this browser with IndexedDB)
+    // =====================================================================
+    const QUICK_TAGS = ['funny', 'fail', 'win', 'shocked', 'bruh', 'hype', 'sad', 'scary', 'rage', 'victory', 'intro', 'outro'];
+    const TYPE_LABEL = { meme: '🎞️ Meme clip', sfx: '🔊 Sound effect', music: '🎵 Music' };
+    let libItems = [], libFilter = 'all', libURLs = [];
+
+    function libDB() {
+      return new Promise((ok, bad) => {
+        const req = indexedDB.open('clipapp', 1);
+        req.onupgradeneeded = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains('library')) db.createObjectStore('library', { keyPath: 'id' });
+        };
+        req.onsuccess = () => ok(req.result);
+        req.onerror = () => bad(req.error);
+      });
+    }
+    async function libTx(mode, fn) {
+      const db = await libDB();
+      return new Promise((ok, bad) => {
+        const tx = db.transaction('library', mode);
+        const store = tx.objectStore('library');
+        const r = fn(store);
+        tx.oncomplete = () => ok(r && 'result' in r ? r.result : undefined);
+        tx.onerror = () => bad(tx.error);
+        tx.onabort = () => bad(tx.error || new Error('Storage aborted (browser storage may be full)'));
+      });
+    }
+    const libAll = () => libTx('readonly', st => st.getAll());
+    const libPut = item => libTx('readwrite', st => st.put(item));
+    const libDel = id => libTx('readwrite', st => st.delete(id));
+
+    // Exposed for Auto-Edit later: find library items by type and tags
+    window.libraryFind = async (type, tags = []) => {
+      const all = await libAll();
+      return all.filter(i => (!type || i.type === type) && (!tags.length || tags.some(t => i.tags.includes(t))));
+    };
+
+    function mediaDuration(file) {
+      return new Promise(ok => {
+        if (file.type.startsWith('image/')) return ok(0);
+        const el = document.createElement(file.type.startsWith('video/') ? 'video' : 'audio');
+        el.preload = 'metadata';
+        const url = URL.createObjectURL(file);
+        const done = d => { URL.revokeObjectURL(url); ok(isFinite(d) ? d : 0); };
+        el.onloadedmetadata = () => done(el.duration);
+        el.onerror = () => done(0);
+        setTimeout(() => done(0), 8000);
+        el.src = url;
+      });
+    }
+    function guessType(file, dur) {
+      if (file.type.startsWith('video/') || file.type.startsWith('image/')) return 'meme';
+      return dur > 0 && dur < 15 ? 'sfx' : 'music';
+    }
+    function guessTags(name) {
+      const n = name.toLowerCase();
+      return QUICK_TAGS.filter(t => n.includes(t));
+    }
+
+    async function libAddFiles(files) {
+      files = [...files].filter(f => /^(video|audio)\//.test(f.type) || f.type === 'image/gif');
+      if (!files.length) { $('libStatus').textContent = '❌ Only video, audio or GIF files can be added.'; return; }
+      let added = 0;
+      for (const f of files) {
+        $('libStatus').textContent = `Adding ${added + 1}/${files.length}: ${f.name}...`;
+        try {
+          const dur = await mediaDuration(f);
+          await libPut({
+            id: (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random()),
+            name: f.name.replace(/\.[^.]+$/, ''),
+            fileName: f.name, mime: f.type, size: f.size,
+            duration: dur, type: guessType(f, dur), tags: guessTags(f.name),
+            added: Date.now(), blob: f,
+          });
+          added++;
+        } catch (e) {
+          console.error(e);
+          $('libStatus').textContent = `❌ Could not save ${f.name}: ${e?.message || e}`;
+          return libRender();
+        }
+      }
+      $('libStatus').textContent = `✅ Added ${added} file${added === 1 ? '' : 's'}. Tag them so Auto-Edit knows when to use them.`;
+      libRender();
+    }
+
+    async function libUsage() {
+      if (!navigator.storage?.estimate) return;
+      const { usage = 0, quota = 0 } = await navigator.storage.estimate();
+      const persisted = navigator.storage.persisted ? await navigator.storage.persisted() : false;
+      $('libUsage').textContent = `Storage: ${(usage / 1024 / 1024).toFixed(0)} MB used of ~${(quota / 1024 / 1024 / 1024).toFixed(1)} GB available · ` +
+        (persisted ? '🔒 protected from automatic cleanup' : '⚠️ not protected yet (browser may clear it if disk gets low)');
+    }
+
+    async function libRender() {
+      libURLs.forEach(u => URL.revokeObjectURL(u)); libURLs = [];
+      libItems = (await libAll()).sort((a, b) => b.added - a.added);
+      const q = $('libSearch').value.trim().toLowerCase();
+      const shown = libItems.filter(i =>
+        (libFilter === 'all' || i.type === libFilter) &&
+        (!q || i.name.toLowerCase().includes(q) || i.tags.some(t => t.includes(q))));
+      const counts = { all: libItems.length, meme: 0, sfx: 0, music: 0 };
+      libItems.forEach(i => counts[i.type]++);
+      document.querySelectorAll('#libTabs button').forEach(b => {
+        b.textContent = b.textContent.replace(/ \(\d+\)$/, '') + ` (${counts[b.dataset.type]})`;
+      });
+
+      const grid = $('libGrid');
+      grid.innerHTML = shown.length ? '' : `<p class="hint">${libItems.length ? 'Nothing matches.' : 'Your library is empty. Add some memes, sound effects or music above.'}</p>`;
+      for (const item of shown) {
+        const url = URL.createObjectURL(item.blob); libURLs.push(url);
+        const card = document.createElement('div');
+        card.className = 'lib-card';
+        const media = item.mime.startsWith('video/') ? `<video src="${url}" controls preload="metadata"></video>`
+                    : item.mime.startsWith('image/') ? `<img src="${url}" style="width:100%;max-height:160px;object-fit:contain;background:#000;border-radius:6px;">`
+                    : `<audio src="${url}" controls preload="metadata"></audio>`;
+        card.innerHTML = `
+          ${media}
+          <div class="name"></div>
+          <div class="hint">${item.duration ? item.duration.toFixed(1) + 's · ' : ''}${(item.size / 1024 / 1024).toFixed(1)} MB</div>
+          <select class="type">${Object.entries(TYPE_LABEL).map(([k, v]) => `<option value="${k}" ${k === item.type ? 'selected' : ''}>${v}</option>`).join('')}</select>
+          <div class="chips">${QUICK_TAGS.map(t => `<span class="chip ${item.tags.includes(t) ? 'on' : ''}" data-tag="${t}">${t}</span>`).join('')}</div>
+          <input class="custom" placeholder="Other tags, comma separated">
+          <button class="del">🗑 Delete</button>`;
+        card.querySelector('.name').textContent = item.name;
+        card.querySelector('.custom').value = item.tags.filter(t => !QUICK_TAGS.includes(t)).join(', ');
+
+        const save = async () => { await libPut(item); };
+        card.querySelector('.type').onchange = async e => { item.type = e.target.value; await save(); libRender(); };
+        card.querySelectorAll('.chip').forEach(ch => ch.onclick = async () => {
+          const t = ch.dataset.tag;
+          item.tags = item.tags.includes(t) ? item.tags.filter(x => x !== t) : [...item.tags, t];
+          ch.classList.toggle('on');
+          await save();
+        });
+        card.querySelector('.custom').onchange = async e => {
+          const custom = e.target.value.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+          item.tags = [...item.tags.filter(t => QUICK_TAGS.includes(t)), ...new Set(custom)];
+          await save();
+        };
+        card.querySelector('.del').onclick = async () => {
+          if (!confirm(`Delete "${item.name}" from the library?`)) return;
+          await libDel(item.id); libRender();
+        };
+        grid.appendChild(card);
+      }
+      libUsage();
+    }
+
+    $('libFiles').addEventListener('change', e => { libAddFiles(e.target.files); e.target.value = ''; });
+    const drop = $('libDrop');
+    drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+    drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+    drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); libAddFiles(e.dataTransfer.files); });
+    document.querySelectorAll('#libTabs button').forEach(b => b.addEventListener('click', () => {
+      libFilter = b.dataset.type;
+      document.querySelectorAll('#libTabs button').forEach(x => x.classList.toggle('active', x === b));
+      libRender();
+    }));
+    $('libSearch').addEventListener('input', () => libRender());
+
+    // Ask the browser to protect the library from automatic cleanup
+    if (navigator.storage?.persist) navigator.storage.persist().finally(libUsage);
+    libRender().catch(e => { console.error(e); $('libStatus').textContent = '❌ Library storage unavailable: ' + (e?.message || e); });
   </script>
 </body>
 </html>
