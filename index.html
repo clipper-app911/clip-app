@@ -42,6 +42,32 @@
     #zipBtn { display: none; background: #16a34a; }
     .hint { color: #999; font-size: 0.85rem; }
     details { margin-top: 16px; }
+    #aePlayer { width: 100%; max-height: 420px; background: #000; border-radius: 8px; display: none; margin-top: 12px; }
+    .status { color: #6cf; margin: 10px 0; font-size: 1.05rem; }
+    .steps div { margin: 2px 0; color: #aaa; }
+    .steps div.done { color: #8f8; } .steps div.active { color: #6cf; } .steps div.fail { color: #f88; }
+    .summary { margin: 8px 0 12px; font-size: 1.05rem; }
+    .timeline { position: relative; height: 54px; background: #000; border-radius: 6px; overflow: hidden; cursor: pointer; }
+    .timeline .seg { position: absolute; top: 0; height: 38px; border-right: 1px solid #0006; box-sizing: border-box; }
+    .timeline .seg.keep { background: #16a34a; } .timeline .seg.cut { background: #dc2626; } .timeline .seg.speed { background: #eab308; }
+    .timeline .seg.sel { outline: 3px solid #fff; outline-offset: -3px; z-index: 2; }
+    .timeline .music { position: absolute; top: 40px; height: 6px; background: #a855f7; border-radius: 3px; }
+    .timeline .hl { position: absolute; top: 0; width: 0; height: 38px; border-left: 2px solid #fff; z-index: 3; }
+    .timeline .hl::after { content: '★'; position: absolute; top: 36px; left: -6px; color: #fde047; font-size: 12px; }
+    .timeline .playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: #6cf; z-index: 4; pointer-events: none; }
+    .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 0.8rem; color: #aaa; margin: 8px 0; }
+    .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 4px; vertical-align: -2px; }
+    .legend i.mk { background: none; border-left: 2px solid #fff; width: 6px; }
+    .ae-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+    .ae-row { display: grid; grid-template-columns: 34px 110px 1fr 150px; gap: 8px; align-items: center; background: #151515; border: 1px solid #2a2a2a; border-radius: 6px; padding: 6px 8px; font-size: 0.85rem; }
+    .ae-row.sel { border-color: #6cf; }
+    .ae-row button { padding: 4px 8px; }
+    .ae-row select { padding: 4px; background: #222; color: #eee; border: 1px solid #444; border-radius: 4px; }
+    .ae-row .why { color: #bbb; }
+    .ae-row .dot { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; }
+    @media (max-width: 700px) { .ae-row { grid-template-columns: 34px 1fr; } }
+    .field { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; font-size: 0.85rem; color: #bbb; }
+    .field input, .field textarea { padding: 8px; background: #222; color: #eee; border: 1px solid #444; border-radius: 4px; font-family: inherit; }
     .brand-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 10px; }
     @media (max-width: 800px) { .brand-grid { grid-template-columns: 1fr; } }
     .brand-grid > div { display: flex; flex-direction: column; gap: 8px; }
@@ -111,7 +137,52 @@
     <section id="view-autoedit" class="view">
       <h1>🎮 Auto-Edit</h1>
       <p class="hint">Upload a full gaming video → AI removes loading screens, idle and boring parts, timelapses slow parts, adds effects and memes → one edited video.</p>
-      <div class="box"><b>🚧 Coming in step 3.</b> We'll build the Library first so Auto-Edit has memes and sounds to use.</div>
+      <div class="box">
+        <input type="file" id="aeFile" accept="video/*">
+        <div id="aeInfo" class="hint"></div>
+        <video id="aePlayer" controls></video>
+        <div class="row">
+          <label>Max final length: <select id="aeMax">
+            <option value="10">10 min</option><option value="15">15 min</option>
+            <option value="20" selected>20 min</option>
+          </select></label>
+          <label>Output: <select id="aeRes">
+            <option value="1920:1080" selected>1920×1080 Full HD (YouTube standard)</option>
+            <option value="1280:720">1280×720 (faster, for quick tests)</option>
+          </select></label>
+        </div>
+        <div class="row">
+          <button id="aeAnalyze" class="big" disabled>🔍 Analyze video</button>
+          <button id="aeRender" class="big" disabled title="Coming in the next step">🎬 Render edited video (next step)</button>
+        </div>
+        <div id="aeStatus" class="status"></div>
+        <div id="aeSteps" class="steps"></div>
+      </div>
+
+      <div id="aeReview" class="box" style="display:none">
+        <b>📋 Review the edit</b>
+        <div id="aeSummary" class="summary"></div>
+        <div id="aeTimeline" class="timeline"></div>
+        <div class="legend">
+          <span><i style="background:#16a34a"></i>Keep</span>
+          <span><i style="background:#dc2626"></i>Cut</span>
+          <span><i style="background:#eab308"></i>Speed up</span>
+          <span><i class="mk"></i>Highlight</span>
+          <span><i style="background:#a855f7"></i>Music warning</span>
+        </div>
+        <p class="hint">Click any part of the bar or a row below to watch it. Change the dropdowns to fix anything the AI got wrong. Changes are saved automatically.</p>
+
+        <h3>✂️ Cuts & speed-ups</h3>
+        <div id="aeSegList" class="ae-list"></div>
+        <h3>⭐ Highlights</h3>
+        <div id="aeHiList" class="ae-list"></div>
+        <h3>🎵 Music warnings</h3>
+        <div id="aeMusicList" class="ae-list"></div>
+        <h3>📝 YouTube details</h3>
+        <label class="field">Title <input type="text" id="aeTitle" maxlength="100"></label>
+        <label class="field">Description <textarea id="aeDesc" rows="4"></textarea></label>
+        <label class="field">Tags <input type="text" id="aeTags"></label>
+      </div>
     </section>
 
     <!-- 📚 LIBRARY -->
@@ -120,7 +191,7 @@
       <p class="hint">Your channel images, memes, sound effects and royalty-free music, saved in this browser.</p>
 
       <div class="box" id="brandBox">
-        <b>🎬 Channel intro & outro</b> <span class="hint">(added to every Auto-Edit video, not to Shorts/Reels)</span>
+        <b>🎬 Channel intro & outro</b> <span class="hint">(added to every Auto-Edit video in Full HD 1920×1080, not to Shorts/Reels)</span>
         <div class="brand-grid">
           <div>
             <div class="brand-title">Intro (3.5s) · banner pops in</div>
@@ -217,7 +288,9 @@
     let mediaCache = { key: '', audio: null, frames: null };
 
     // ---------- logging / status ----------
+    const logHooks = [];
     ffmpeg.on('log', ({ message }) => {
+      logHooks.forEach(h => h(message));
       const log = $('log');
       log.textContent += message + '\n';
       if (log.textContent.length > 200000) log.textContent = log.textContent.slice(-100000);
@@ -258,7 +331,10 @@
     }
     loadFFmpeg().catch(e => { console.error(e); status('❌ Failed to load: ' + (e?.message || e)); $('engine').textContent = '❌ Engine failed'; });
 
-    function updateGo() { $('goBtn').disabled = !(ffmpeg.loaded && file && duration > 0 && !busy); }
+    function updateGo() {
+      $('goBtn').disabled = !(ffmpeg.loaded && file && duration > 0 && !busy);
+      if (window.aeUpdate) aeUpdate();
+    }
 
     $('fileInput').addEventListener('change', () => {
       file = $('fileInput').files[0];
@@ -914,8 +990,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         filter: `[${inputIndex}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,apad,atrim=0:${dur},afade=t=out:st=${dur - 0.5}:d=0.5[aout]` };
     }
 
-    // Exposed for Auto-Edit: returns an MP4 Blob (1280x720 by default)
-    window.makeIntro = async (w = 1280, h = 720) => {
+    // Exposed for Auto-Edit: returns an MP4 Blob, rendered natively at w×h (default Full HD)
+    window.makeIntro = async (w = 1920, h = 1080) => {
       const item = await libGet(brand.introImg);
       if (!item) throw new Error('Pick a banner image for the intro.');
       await ensureBrandDir();
@@ -927,53 +1003,56 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         '-loop', '1', '-t', String(D), '-framerate', '30', '-i', img,
         ...aud.args,
         '-filter_complex',
-        `[0]scale=-2:720,crop=1280:720,boxblur=20:2,eq=brightness=-0.25[bg];` +
-        `[1]scale=w='1280*min(1\\,0.75+0.5*t)':h=-2:eval=frame[fg];` +
-        `[bg][fg]overlay=x=(W-w)/2:y=(H-h)/2:eval=frame,fade=t=in:st=0:d=0.3,fade=t=out:st=${D - 0.4}:d=0.4,scale=${w}:${h},setsar=1,format=yuv420p[v];` +
+        `[0]scale=-2:${h},crop=${w}:${h},boxblur=20:2,eq=brightness=-0.25[bg];` +
+        `[1]scale=w='trunc(${w}*min(1\\,0.75+0.5*t)/2)*2':h=-2:eval=frame[fg];` +
+        `[bg][fg]overlay=x=(W-w)/2:y=(H-h)/2:eval=frame,fade=t=in:st=0:d=0.3,fade=t=out:st=${D - 0.4}:d=0.4,setsar=1,format=yuv420p[v];` +
         aud.filter,
-        '-map', '[v]', '-map', '[aout]', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23', '-r', '30',
-        '-c:a', 'aac', '-b:a', '128k', '-shortest', '-movflags', '+faststart', '/brand/intro.mp4',
+        '-map', '[v]', '-map', '[aout]', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '21', '-r', '30',
+        '-c:a', 'aac', '-b:a', '160k', '-ar', '48000', '-shortest', '-movflags', '+faststart', '/brand/intro.mp4',
       ]);
       const data = await ffmpeg.readFile('/brand/intro.mp4');
       return new Blob([data.buffer], { type: 'video/mp4' });
     };
 
-    window.makeOutro = async (w = 1280, h = 720) => {
+    window.makeOutro = async (w = 1920, h = 1080) => {
       const item = await libGet(brand.outroImg);
       if (!item) throw new Error('Pick a logo image for the outro.');
       await ensureBrandDir();
       const img = await fsWriteItem(item, 'outro_img');
       const bgItem = await libGet(brand.introImg) || item;
       const bg = bgItem.id === item.id ? img : await fsWriteItem(bgItem, 'outro_bg');
+      const k = w / 1280, R = n => Math.round(n * k);            // layout designed at 1280×720, scaled up
+      const L = R(440), half = L / 2, rad = half - R(6);
       // round logo with transparent corners
       await runFF(['-i', img, '-vf',
-        `scale=440:440:force_original_aspect_ratio=increase,crop=440:440,format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lte(hypot(X-220,Y-220),214),255,0)'`,
+        `scale=${L}:${L}:force_original_aspect_ratio=increase,crop=${L}:${L},format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lte(hypot(X-${half},Y-${half}),${rad}),255,0)'`,
         '-frames:v', '1', '/brand/logo.png']);
       const lines = ['THANKS FOR WATCHING!', 'LIKE • COMMENT • SUBSCRIBE', 'SUBSCRIBE', (brand.outroLine || '').toUpperCase()];
       for (let i = 0; i < lines.length; i++) await ffmpeg.writeFile(`/brand/t${i + 1}.txt`, lines[i]);
       const D = 10;
       const aud = await audioPart(brand.outroSnd, D, 2);
       const T = (n, size, color, x, y, extra = '') =>
-        `drawtext=fontfile=${FONT}:textfile=/brand/t${n}.txt:fontsize=${size}:fontcolor=${color}:x=${x}:y=${y}${extra}`;
+        `drawtext=fontfile=${FONT}:textfile=/brand/t${n}.txt:fontsize=${R(size)}:fontcolor=${color}:x=${x}:y=${y}${extra}`;
+      const bx = R(620), by = R(375), bw = R(360), bh = R(92);
       await runFF([
         '-loop', '1', '-t', String(D), '-framerate', '30', '-i', bg,
         '-loop', '1', '-t', String(D), '-framerate', '30', '-i', '/brand/logo.png',
         ...aud.args,
         '-filter_complex',
-        `[0]scale=-2:720,crop=1280:720,boxblur=20:2,eq=brightness=-0.3[bg];` +
-        `[1]scale=w='440*(0.85+0.15*min(1\\,t/0.4))':h=-1:eval=frame[lg];` +
-        `[bg][lg]overlay=x=330-w/2:y=360-h/2:eval=frame[a];` +
+        `[0]scale=-2:${h},crop=${w}:${h},boxblur=20:2,eq=brightness=-0.3[bg];` +
+        `[1]scale=w='trunc(${L}*(0.85+0.15*min(1\\,t/0.4))/2)*2':h=-1:eval=frame[lg];` +
+        `[bg][lg]overlay=x=${R(330)}-w/2:y=${h / 2}-h/2:eval=frame[a];` +
         `[a]` + [
-          T(1, 72, '0xFFE500', 620, 170, ':borderw=5:bordercolor=black'),
-          T(2, 48, 'white', 620, 275, ':borderw=4:bordercolor=black'),
-          `drawbox=x=620:y=375:w=360:h=92:color=0xE62117@1:t=fill`,
-          `drawbox=x=612:y=367:w=376:h=108:color=0xFF4444@0.5:t=6:enable='between(mod(t\\,1.2)\\,0.6\\,0.9)'`,
-          T(3, 58, 'white', '620+(360-text_w)/2', '375+(92-text_h)/2'),
-          ...(brand.outroLine ? [T(4, 36, '0x6CCFFF', 620, 505, ':borderw=3:bordercolor=black')] : []),
-          `fade=t=in:st=0:d=0.5,fade=t=out:st=${D - 0.5}:d=0.5,scale=${w}:${h},setsar=1,format=yuv420p[v]`,
+          T(1, 72, '0xFFE500', bx, R(170), `:borderw=${R(5)}:bordercolor=black`),
+          T(2, 48, 'white', bx, R(275), `:borderw=${R(4)}:bordercolor=black`),
+          `drawbox=x=${bx}:y=${by}:w=${bw}:h=${bh}:color=0xE62117@1:t=fill`,
+          `drawbox=x=${bx - R(8)}:y=${by - R(8)}:w=${bw + R(16)}:h=${bh + R(16)}:color=0xFF4444@0.5:t=${R(6)}:enable='between(mod(t\\,1.2)\\,0.6\\,0.9)'`,
+          T(3, 58, 'white', `${bx}+(${bw}-text_w)/2`, `${by}+(${bh}-text_h)/2`),
+          ...(brand.outroLine ? [T(4, 36, '0x6CCFFF', bx, R(505), `:borderw=${R(3)}:bordercolor=black`)] : []),
+          `fade=t=in:st=0:d=0.5,fade=t=out:st=${D - 0.5}:d=0.5,setsar=1,format=yuv420p[v]`,
         ].join(',') + ';' + aud.filter,
-        '-map', '[v]', '-map', '[aout]', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23', '-r', '30',
-        '-c:a', 'aac', '-b:a', '128k', '-shortest', '-movflags', '+faststart', '/brand/outro.mp4',
+        '-map', '[v]', '-map', '[aout]', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '21', '-r', '30',
+        '-c:a', 'aac', '-b:a', '160k', '-ar', '48000', '-shortest', '-movflags', '+faststart', '/brand/outro.mp4',
       ]);
       const data = await ffmpeg.readFile('/brand/outro.mp4');
       return new Blob([data.buffer], { type: 'video/mp4' });
@@ -1004,6 +1083,427 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     $('brIntroBtn').onclick = () => brandPreview('intro');
     $('brOutroBtn').onclick = () => brandPreview('outro');
     brandRefresh();
+
+
+    // =====================================================================
+    // 🎮 AUTO-EDIT · part 1: analyze + review timeline
+    // =====================================================================
+    const INTRO_LEN = 3.5, OUTRO_LEN = 10;
+    const AE_HL_KINDS = ['funny', 'fail', 'win', 'shocked', 'hype', 'rage', 'scary', 'sad'];
+    const AE_EFFECTS = ['zoom', 'slowmo', 'sfx', 'meme', 'none'];
+    let ae = { file: null, dur: 0, mounted: false, plan: null, key: '', sel: -1 };
+
+    function aeStepper() {
+      return (text, state = 'active') => {
+        const d = document.createElement('div');
+        d.className = state; d.textContent = (state === 'done' ? '✅ ' : state === 'fail' ? '❌ ' : '⏳ ') + text;
+        $('aeSteps').appendChild(d);
+        return {
+          done: t => { d.className = 'done'; d.textContent = '✅ ' + (t || text); },
+          fail: t => { d.className = 'fail'; d.textContent = '❌ ' + (t || text); },
+          update: t => { d.textContent = '⏳ ' + t; },
+        };
+      };
+    }
+    const aeStatus = t => $('aeStatus').textContent = t;
+    const fmtT = s => { s = Math.max(0, s); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = Math.floor(s % 60);
+      return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0'); };
+    const fmtLen = s => s >= 60 ? `${Math.floor(s / 60)}m ${String(Math.round(s % 60)).padStart(2, '0')}s` : `${Math.round(s)}s`;
+
+    window.aeUpdate = () => {
+      $('aeAnalyze').disabled = !(ffmpeg.loaded && ae.file && ae.dur > 0 && !busy);
+    };
+
+    $('aeFile').addEventListener('change', () => {
+      ae.file = $('aeFile').files[0]; ae.dur = 0; ae.plan = null;
+      $('aeReview').style.display = 'none'; $('aeSteps').innerHTML = ''; aeStatus('');
+      if (!ae.file) return aeUpdate();
+      const v = $('aePlayer'), f = ae.file;
+      let settled = false;
+      const ready = (dur, w, h, note = '') => {
+        if (settled || f !== ae.file) return; settled = true;
+        ae.dur = dur;
+        ae.key = `edit:${f.name}:${f.size}`;
+        $('aeInfo').textContent = `${f.name} | ${(f.size / 1024 / 1024).toFixed(0)} MB | ${fmtLen(dur)} | ${w}×${h}${note}`;
+        const saved = LS.get(ae.key);
+        if (saved) { ae.plan = JSON.parse(saved); aeStatus('✅ Loaded your saved edit plan for this video. Re-analyze to start over.'); aeRenderReview(); }
+        aeUpdate();
+      };
+      // if the browser can't read this file (e.g. some .mkv recordings), let ffmpeg read it instead
+      const probe = async () => {
+        if (settled) return;
+        $('aeInfo').textContent = 'Browser cannot preview this file, reading it with ffmpeg...';
+        while (!ffmpeg.loaded) await sleep(500);
+        while (busy) await sleep(500);
+        try {
+          const path = await aeMount();
+          const lines = await aeExec(['-hide_banner', '-i', path]);
+          const all = lines.join('\n');
+          const d = all.match(/Duration:\s*(\d+):(\d+):([\d.]+)/);
+          const r = all.match(/Video:.*?(\d{3,5})x(\d{3,5})/);
+          if (!d) throw new Error('could not read video length');
+          ready(+d[1] * 3600 + +d[2] * 60 + +d[3], r ? r[1] : '?', r ? r[2] : '?', ' · (no browser preview for this format; timeline still works)');
+        } catch (e) { $('aeInfo').textContent = '❌ Could not read this video: ' + e.message; }
+      };
+      v.onloadedmetadata = () => { if (isFinite(v.duration) && v.duration > 0) ready(v.duration, v.videoWidth, v.videoHeight); else probe(); };
+      v.onerror = probe;
+      setTimeout(probe, 6000);
+      v.src = URL.createObjectURL(f); v.style.display = 'block';
+    });
+    $('aeMax').addEventListener('change', () => { if (ae.plan) { aeFitLength(); aeSave(); aeRenderReview(); } });
+
+    async function aeMount() {
+      try { await ffmpeg.createDir('/ae'); } catch {}
+      if (ae.mounted) await ffmpeg.unmount('/ae');
+      await ffmpeg.mount('WORKERFS', { files: [ae.file] }, '/ae');
+      ae.mounted = true;
+      try { await ffmpeg.createDir('/aew'); } catch {}
+      return `/ae/${ae.file.name}`;
+    }
+
+    // run ffmpeg and collect log lines while it runs
+    async function aeExec(args, onLine) {
+      const lines = [];
+      const hook = m => { lines.push(m); if (onLine) onLine(m); };
+      logHooks.push(hook);
+      try { await ffmpeg.exec(args); } finally { logHooks.splice(logHooks.indexOf(hook), 1); }
+      return lines;
+    }
+    function parseRanges(lines, startKey, endKey) {
+      const out = []; let cur = null;
+      for (const l of lines) {
+        let m = l.match(new RegExp(startKey + ':\\s*([\\d.]+)'));
+        if (m) cur = parseFloat(m[1]);
+        m = l.match(new RegExp(endKey + ':\\s*([\\d.]+)'));
+        if (m && cur !== null) { out.push([cur, parseFloat(m[1])]); cur = null; }
+      }
+      if (cur !== null) out.push([cur, ae.dur]);   // still frozen/silent at the end
+      return out;
+    }
+
+    // ---- pass 1: keyframes only -> freeze detection + thumbnails ----
+    async function aeScanVideo(path, st) {
+      const step = Math.max(5, Math.ceil(ae.dur / 160));        // at most ~160 snapshots
+      progressLen = ae.dur;
+      onProgress = p => st.update(`Scanning video for loading screens, menus, AFK... ${(p * 100).toFixed(0)}%`);
+      const lines = await aeExec(['-skip_frame', 'nokey', '-i', path, '-an', '-filter_complex',
+        `[0:v]scale=320:-2,split[a][b];[a]freezedetect=n=0.004:d=4[fz];[b]fps=1/${step},scale=320:-2[th]`,
+        '-map', '[fz]', '-f', 'null', '-', '-map', '[th]', '-q:v', '7', '/aew/th_%04d.jpg']);
+      onProgress = null;
+      const freezes = parseRanges(lines, 'freeze_start', 'freeze_end');
+      const thumbs = [];
+      for (let i = 1; ; i++) {
+        const name = `/aew/th_${String(i).padStart(4, '0')}.jpg`;
+        let data;
+        try { data = await ffmpeg.readFile(name); } catch { break; }
+        await ffmpeg.deleteFile(name);
+        thumbs.push({ t: (i - 1) * step, b64: await blobToBase64(new Blob([data.buffer], { type: 'image/jpeg' })) });
+      }
+      return { freezes, thumbs, step };
+    }
+
+    // ---- pass 2: audio -> silence detection + mp3 for the AI ----
+    async function aeScanAudio(path, st) {
+      const maxKbps = Math.floor(12e6 * 8 / ae.dur / 1000);
+      const kbps = [48, 40, 32, 24, 16, 8].find(k => k <= maxKbps) || 8;
+      progressLen = ae.dur;
+      onProgress = p => st.update(`Scanning audio for silence... ${(p * 100).toFixed(0)}%`);
+      const lines = await aeExec(['-i', path, '-vn', '-filter_complex', '[0:a]asplit[s][m];[s]silencedetect=n=-38dB:d=4[sd]',
+        '-map', '[sd]', '-f', 'null', '-', '-map', '[m]', '-ac', '1', '-ar', '16000', '-c:a', 'libmp3lame', '-b:a', `${kbps}k`, '/aew/audio.mp3']);
+      onProgress = null;
+      const silences = parseRanges(lines, 'silence_start', 'silence_end');
+      let audio = null;
+      try { audio = await ffmpeg.readFile('/aew/audio.mp3'); await ffmpeg.deleteFile('/aew/audio.mp3'); } catch {}
+      return { silences, audio, kbps };
+    }
+
+    // ---- AI edit plan ----
+    const AE_SCHEMA = {
+      type: 'OBJECT',
+      properties: {
+        segments: { type: 'ARRAY', items: { type: 'OBJECT', properties: {
+          start: { type: 'NUMBER' }, end: { type: 'NUMBER' },
+          action: { type: 'STRING', enum: ['keep', 'cut', 'speed'] },
+          speed: { type: 'NUMBER' }, score: { type: 'NUMBER' }, reason: { type: 'STRING' } },
+          required: ['start', 'end', 'action', 'score', 'reason'] } },
+        highlights: { type: 'ARRAY', items: { type: 'OBJECT', properties: {
+          time: { type: 'NUMBER' }, kind: { type: 'STRING', enum: AE_HL_KINDS },
+          effect: { type: 'STRING', enum: AE_EFFECTS }, note: { type: 'STRING' } },
+          required: ['time', 'kind', 'effect', 'note'] } },
+        music: { type: 'ARRAY', items: { type: 'OBJECT', properties: {
+          start: { type: 'NUMBER' }, end: { type: 'NUMBER' },
+          kind: { type: 'STRING', enum: ['song', 'game_music'] },
+          action: { type: 'STRING', enum: ['mute', 'lower', 'keep'] }, note: { type: 'STRING' } },
+          required: ['start', 'end', 'kind', 'action', 'note'] } },
+        title: { type: 'STRING' }, description: { type: 'STRING' }, tags: { type: 'ARRAY', items: { type: 'STRING' } },
+      },
+      required: ['segments', 'highlights', 'music', 'title', 'description', 'tags'],
+    };
+
+    function aePrompt(scan, maxMin) {
+      const r = a => a.map(([s, e]) => `${s.toFixed(1)}-${e.toFixed(1)}`).join(', ') || 'none';
+      return `You are an expert YouTube gaming video editor for a kid's gaming channel. Above is the full audio of a ${Math.round(ae.dur)}-second gameplay recording, plus snapshots labeled with their timestamps.
+
+Automatic detectors found:
+- Frozen / static screen (loading screens, menus, paused, AFK): ${r(scan.freezes)}
+- Silence (no commentary and no game sound): ${r(scan.silences)}
+
+Create an edit plan. Split the WHOLE video into consecutive segments from 0 to ${ae.dur.toFixed(1)} with no gaps and no overlaps. For each segment choose an action:
+- "cut": loading screens, black screens, "connecting" screens, menus/settings/lobby waiting, respawn timers and death screens (keep the funny death itself), AFK/idle, nothing happening, repeated failed attempts that add nothing.
+- "speed": long boring-but-relevant stretches with no talking (walking, driving, grinding, mining, building). Set speed to 4 or 8.
+- "keep": real gameplay, commentary, reactions, funny moments, wins, fails, anything entertaining.
+Rules:
+- Never cut in the middle of a sentence. Prefer boundaries at natural pauses.
+- Keep segments at least 3 seconds; do not create tiny fragments.
+- Give EVERY segment a "score" from 1 (boring) to 10 (best moment) for how entertaining it is.
+- The final video must be at most ${maxMin} minutes including a 3.5s intro and 10s outro, so be strict with boring parts.
+- "reason": a short explanation (max 8 words), e.g. "loading screen", "funny fail reaction".
+
+Also list:
+- highlights: the best moments (time in seconds) with kind and a suggested effect: "zoom" (punch-in on a reaction), "slowmo" (epic play), "sfx" (sound effect like bruh/vine boom), "meme" (short meme clip), or "none". Pick at most 15, spread across the video.
+- music: stretches where a recognizable copyrighted SONG plays (action "mute") or loud game soundtrack plays without commentary (kind "game_music", action "lower"). Empty list if none.
+- title (max 70 chars, exciting, kid-friendly, no clickbait lies), description (2-3 sentences + 3-5 hashtags), tags (5-10).`;
+    }
+
+    async function aeAskAI(scan, maxMin, onInfo) {
+      const parts = [];
+      if (scan.audio) parts.push({ inline_data: { mime_type: 'audio/mp3', data: await blobToBase64(new Blob([scan.audio.buffer], { type: 'audio/mp3' })) } });
+      for (const f of scan.thumbs) {
+        parts.push({ text: `Snapshot at ${f.t.toFixed(0)}s:` });
+        parts.push({ inline_data: { mime_type: 'image/jpeg', data: f.b64 } });
+      }
+      parts.push({ text: aePrompt(scan, maxMin) });
+      const text = await geminiRobust({ contents: [{ parts }],
+        generationConfig: { responseMimeType: 'application/json', responseSchema: AE_SCHEMA, temperature: 0.4 } }, onInfo);
+      return JSON.parse(text);
+    }
+
+    // ---- clean up / validate a plan (from AI or fallback) ----
+    function aeClean(raw) {
+      const D = ae.dur;
+      let segs = (raw.segments || []).map(x => ({
+        start: Math.max(0, Math.min(D, +x.start || 0)), end: Math.max(0, Math.min(D, +x.end || 0)),
+        action: ['keep', 'cut', 'speed'].includes(x.action) ? x.action : 'keep',
+        speed: x.action === 'speed' ? Math.min(8, Math.max(2, Math.round(+x.speed || 4))) : 1,
+        score: Math.min(10, Math.max(1, Math.round(+x.score || 5))), reason: String(x.reason || '').slice(0, 80),
+      })).filter(x => x.end - x.start > 0.2).sort((a, b) => a.start - b.start);
+      // remove overlaps, fill gaps with "keep"
+      const out = []; let t = 0;
+      for (const x of segs) {
+        if (x.end <= t) continue;
+        if (x.start > t + 0.2) out.push({ start: t, end: x.start, action: 'keep', speed: 1, score: 5, reason: 'gameplay' });
+        out.push({ ...x, start: Math.max(x.start, t) });
+        t = x.end;
+      }
+      if (t < D - 0.2) out.push({ start: t, end: D, action: 'keep', speed: 1, score: 5, reason: 'gameplay' });
+      // tiny cut/speed fragments become keep; merge neighbours with the same decision
+      out.forEach(x => { if (x.action !== 'keep' && x.end - x.start < 1.5) { x.action = 'keep'; x.speed = 1; } });
+      const merged = [];
+      for (const x of out) {
+        const last = merged[merged.length - 1];
+        if (last && last.action === x.action && last.speed === x.speed && x.action !== 'keep') { last.end = x.end; continue; }
+        merged.push({ ...x });
+      }
+      if (merged.length) { merged[0].start = 0; merged[merged.length - 1].end = D; }
+
+      const hl = (raw.highlights || []).map(h => ({
+        time: Math.max(0, Math.min(D, +h.time || 0)), kind: AE_HL_KINDS.includes(h.kind) ? h.kind : 'funny',
+        effect: AE_EFFECTS.includes(h.effect) ? h.effect : 'zoom', note: String(h.note || '').slice(0, 100), on: true,
+      })).sort((a, b) => a.time - b.time).slice(0, 20);
+      const music = (raw.music || []).map(m => ({
+        start: Math.max(0, +m.start || 0), end: Math.min(D, +m.end || 0),
+        kind: m.kind === 'song' ? 'song' : 'game_music', action: ['mute', 'lower', 'keep'].includes(m.action) ? m.action : 'lower',
+        note: String(m.note || '').slice(0, 100),
+      })).filter(m => m.end - m.start > 1);
+      return { segments: merged, highlights: hl, music,
+        title: String(raw.title || '').slice(0, 100), description: String(raw.description || ''),
+        tags: Array.isArray(raw.tags) ? raw.tags.slice(0, 15) : [], source: raw.source || 'ai', autoCut: [] };
+    }
+
+    // fallback plan when AI is unavailable: frozen + silent stretches are cut
+    function aeFallback(scan) {
+      const segs = [];
+      const overlap = (a, b) => [Math.max(a[0], b[0]), Math.min(a[1], b[1])];
+      for (const f of scan.freezes) {
+        const silentPart = scan.silences.map(s => overlap(f, s)).filter(([a, b]) => b - a >= 4);
+        if (f[1] - f[0] >= 8) segs.push({ start: f[0], end: f[1], action: 'cut', score: 1, reason: 'frozen screen' });
+        else silentPart.forEach(([a, b]) => segs.push({ start: a, end: b, action: 'cut', score: 1, reason: 'frozen + silent' }));
+      }
+      return { segments: segs, highlights: [], music: [], title: '', description: '', tags: [], source: 'detectors' };
+    }
+
+    // ---- length math + enforce the max length ----
+    const aeSegOut = x => x.action === 'cut' ? 0 : x.action === 'speed' ? (x.end - x.start) / x.speed : x.end - x.start;
+    const aeFinalLen = plan => INTRO_LEN + OUTRO_LEN + plan.segments.reduce((a, x) => a + aeSegOut(x), 0);
+    function aeFitLength() {
+      const plan = ae.plan, max = +$('aeMax').value * 60;
+      // undo previous automatic length cuts (and re-join automatic splits) so changing the max can restore them
+      const segs = [];
+      for (const x of plan.segments) {
+        if (x.autoCut) { x.action = 'keep'; x.speed = 1; delete x.autoCut; }
+        const last = segs[segs.length - 1];
+        if (x.autoSplit && last && last.end === x.start && last.action === 'keep') { last.end = x.end; continue; }
+        delete x.autoSplit; segs.push(x);
+      }
+      plan.segments = segs;
+      const hasHL = x => plan.highlights.some(h => h.on && h.time >= x.start && h.time <= x.end);
+      const candidates = plan.segments.filter(x => x.action === 'keep' && !hasHL(x))
+        .sort((a, b) => a.score - b.score || (b.end - b.start) - (a.end - a.start));
+      for (const x of candidates) {
+        const excess = aeFinalLen(plan) - max;
+        if (excess <= 0) break;
+        const len = x.end - x.start;
+        if (excess < len - 5) {
+          // only trim the end of this part, as much as needed (rounded up a little)
+          const cutLen = Math.min(len - 3, Math.ceil(excess + 1));
+          const tail = { ...x, start: x.end - cutLen, action: 'cut', speed: 1, autoCut: true, autoSplit: true,
+                         reason: (x.reason || '') + ' (trimmed for length)' };
+          x.end = tail.start;
+          plan.segments.splice(plan.segments.indexOf(x) + 1, 0, tail);
+          break;
+        }
+        x.action = 'cut'; x.autoCut = true;
+      }
+    }
+    const aeSave = () => LS.set(ae.key, JSON.stringify(ae.plan));
+
+    // ---- review UI ----
+    function aeSeek(t, play = true) {
+      const v = $('aePlayer'); v.currentTime = t; if (play) v.play().catch(() => {});
+      v.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    function aeRenderReview() {
+      const plan = ae.plan, D = ae.dur;
+      $('aeReview').style.display = 'block';
+      const fin = aeFinalLen(plan), max = +$('aeMax').value * 60;
+      const cutT = plan.segments.filter(x => x.action === 'cut').reduce((a, x) => a + x.end - x.start, 0);
+      const spdT = plan.segments.filter(x => x.action === 'speed').reduce((a, x) => a + x.end - x.start, 0);
+      const autoN = plan.segments.filter(x => x.autoCut).length;
+      $('aeSummary').innerHTML = `Original <b>${fmtLen(D)}</b> → final about <b style="color:${fin <= max ? '#8f8' : '#f88'}">${fmtLen(fin)}</b>` +
+        ` (max ${$('aeMax').value} min) · cutting ${fmtLen(cutT)} · speeding up ${fmtLen(spdT)} · ${plan.highlights.filter(h => h.on).length} highlights` +
+        (autoN ? ` · <span style="color:#fbbf24">${autoN} low-score part${autoN > 1 ? 's' : ''} auto-cut to fit the max length</span>` : '') +
+        (plan.source === 'detectors' ? '<br><span style="color:#fbbf24">⚠️ AI was unavailable, so this plan only uses freeze/silence detection. Re-analyze later for a smarter edit.</span>' : '');
+
+      // timeline bar
+      const tl = $('aeTimeline'); tl.innerHTML = '';
+      plan.segments.forEach((x, i) => {
+        const d = document.createElement('div');
+        d.className = `seg ${x.action}${i === ae.sel ? ' sel' : ''}`;
+        d.style.left = (x.start / D * 100) + '%'; d.style.width = ((x.end - x.start) / D * 100) + '%';
+        d.title = `${fmtT(x.start)}–${fmtT(x.end)} · ${x.action}${x.action === 'speed' ? ' ' + x.speed + '×' : ''} · ${x.reason}`;
+        d.onclick = e => { e.stopPropagation(); aeSelect(i); };
+        tl.appendChild(d);
+      });
+      plan.music.forEach(m => { const d = document.createElement('div'); d.className = 'music';
+        d.style.left = (m.start / D * 100) + '%'; d.style.width = ((m.end - m.start) / D * 100) + '%'; d.title = `${m.kind}: ${m.note}`; tl.appendChild(d); });
+      plan.highlights.filter(h => h.on).forEach(h => { const d = document.createElement('div'); d.className = 'hl';
+        d.style.left = (h.time / D * 100) + '%'; d.title = `${h.kind} · ${h.effect} · ${h.note}`; tl.appendChild(d); });
+      const ph = document.createElement('div'); ph.className = 'playhead'; ph.id = 'aePlayhead'; tl.appendChild(ph);
+      tl.onclick = e => { const r = tl.getBoundingClientRect(); aeSeek((e.clientX - r.left) / r.width * D); };
+
+      // segment list: only non-keep parts and keep parts the user may want to cut
+      const list = $('aeSegList'); list.innerHTML = '';
+      plan.segments.forEach((x, i) => {
+        const row = document.createElement('div');
+        row.className = 'ae-row' + (i === ae.sel ? ' sel' : ''); row.id = 'aeRow' + i;
+        const color = { keep: '#16a34a', cut: '#dc2626', speed: '#eab308' }[x.action];
+        row.innerHTML = `<button title="Watch">▶</button>
+          <span><i class="dot" style="background:${color}"></i>${fmtT(x.start)}–${fmtT(x.end)}</span>
+          <span class="why"></span>
+          <select>
+            <option value="keep">✅ Keep</option><option value="cut">✂️ Cut</option>
+            <option value="speed:2">⏩ Speed 2×</option><option value="speed:4">⏩ Speed 4×</option><option value="speed:8">⏩ Speed 8×</option>
+          </select>`;
+        row.querySelector('.why').textContent = `${x.reason || ''} · score ${x.score}/10 · ${fmtLen(x.end - x.start)}${x.autoCut ? ' · auto-cut for length' : ''}`;
+        const sel = row.querySelector('select');
+        sel.value = x.action === 'speed' ? `speed:${[2, 4, 8].includes(x.speed) ? x.speed : 4}` : x.action;
+        sel.onchange = () => {
+          const [a, sp] = sel.value.split(':');
+          x.action = a; x.speed = a === 'speed' ? +sp : 1; delete x.autoCut;
+          if (a === 'keep') x.score = Math.max(x.score, 6);   // user wants it: protect from auto length cuts
+          aeFitLength(); aeSave(); aeRenderReview();
+        };
+        row.querySelector('button').onclick = () => { aeSelect(i); };
+        list.appendChild(row);
+      });
+
+      const hlList = $('aeHiList'); hlList.innerHTML = plan.highlights.length ? '' : '<p class="hint">No highlights found.</p>';
+      plan.highlights.forEach(h => {
+        const row = document.createElement('div'); row.className = 'ae-row';
+        row.innerHTML = `<button title="Watch">▶</button><span>★ ${fmtT(h.time)} · ${h.kind}</span><span class="why"></span>
+          <select>${AE_EFFECTS.map(e => `<option value="${e}">${{ zoom: '🔍 Zoom in', slowmo: '🐢 Slow-mo', sfx: '🔊 Sound effect', meme: '🎞️ Meme clip', none: '🚫 No effect' }[e]}</option>`).join('')}</select>`;
+        row.querySelector('.why').textContent = h.note;
+        const sel = row.querySelector('select'); sel.value = h.on ? h.effect : 'none';
+        sel.onchange = () => { h.effect = sel.value; h.on = sel.value !== 'none'; aeFitLength(); aeSave(); aeRenderReview(); };
+        row.querySelector('button').onclick = () => aeSeek(Math.max(0, h.time - 3));
+        hlList.appendChild(row);
+      });
+
+      const mList = $('aeMusicList'); mList.innerHTML = plan.music.length ? '' : '<p class="hint">No copyrighted music detected. Still run YouTube Studio\'s copyright check before publishing.</p>';
+      plan.music.forEach(m => {
+        const row = document.createElement('div'); row.className = 'ae-row';
+        row.innerHTML = `<button title="Listen">▶</button><span>${fmtT(m.start)}–${fmtT(m.end)}</span><span class="why"></span>
+          <select><option value="mute">🔇 Mute music part</option><option value="lower">🔉 Lower volume</option><option value="keep">🔊 Keep as is</option></select>`;
+        row.querySelector('.why').textContent = `${m.kind === 'song' ? '🎵 Song' : '🎮 Game music'} · ${m.note}`;
+        const sel = row.querySelector('select'); sel.value = m.action;
+        sel.onchange = () => { m.action = sel.value; aeSave(); };
+        row.querySelector('button').onclick = () => aeSeek(m.start);
+        mList.appendChild(row);
+      });
+
+      $('aeTitle').value = plan.title; $('aeDesc').value = plan.description; $('aeTags').value = plan.tags.join(', ');
+    }
+    function aeSelect(i) {
+      ae.sel = i; const x = ae.plan.segments[i];
+      document.querySelectorAll('#aeTimeline .seg').forEach((d, j) => d.classList.toggle('sel', j === i));
+      document.querySelectorAll('#aeSegList .ae-row').forEach((d, j) => d.classList.toggle('sel', j === i));
+      aeSeek(x.start);
+    }
+    $('aeTitle').onchange = e => { ae.plan.title = e.target.value; aeSave(); };
+    $('aeDesc').onchange = e => { ae.plan.description = e.target.value; aeSave(); };
+    $('aeTags').onchange = e => { ae.plan.tags = e.target.value.split(',').map(t => t.trim()).filter(Boolean); aeSave(); };
+    $('aePlayer').addEventListener('timeupdate', () => {
+      const ph = $('aePlayhead'); if (ph && ae.dur) ph.style.left = ($('aePlayer').currentTime / ae.dur * 100) + '%';
+    });
+
+    // ---- main analyze button ----
+    $('aeAnalyze').addEventListener('click', async () => {
+      busy = true; updateGo(); $('engine').textContent = '⚙️ Analyzing video...';
+      $('aeSteps').innerHTML = ''; $('aeReview').style.display = 'none';
+      const step = aeStepper(), t0 = performance.now();
+      try {
+        const path = await aeMount();
+        let st = step('Scanning video...');
+        const v = await aeScanVideo(path, st);
+        st.done(`Video scanned: ${v.freezes.length} frozen-screen parts found, ${v.thumbs.length} snapshots`);
+        st = step('Scanning audio...');
+        const a = await aeScanAudio(path, st);
+        st.done(`Audio scanned: ${a.silences.length} silent parts found`);
+        const scan = { ...v, ...a };
+
+        let raw;
+        st = step('AI is watching the whole video and planning the edit (can take 1–3 min)...');
+        try {
+          if (!a.audio) throw new Error('no audio track');
+          raw = await aeAskAI(scan, +$('aeMax').value, t => { st.update(t); aeStatus('🤖 ' + t); });
+          st.done(`AI (${$('model').value}) made the edit plan`);
+        } catch (e) {
+          console.warn('AI failed, using detectors', e);
+          st.fail(`AI unavailable (${e.message}). Using freeze/silence detection instead.`);
+          raw = aeFallback(scan);
+        }
+        ae.plan = aeClean(raw);
+        ae.sel = -1;
+        aeFitLength(); aeSave(); aeRenderReview();
+        aeStatus(`✅ Analysis done in ${((performance.now() - t0) / 60000).toFixed(1)} min. Review the plan below.`);
+      } catch (e) {
+        console.error(e);
+        aeStatus('❌ ' + (e?.message || e));
+        step(e?.message || String(e), 'fail');
+      }
+      onProgress = null;
+      busy = false; updateGo(); $('engine').textContent = '✅ Engine ready';
+    });
   </script>
 </body>
 </html>
