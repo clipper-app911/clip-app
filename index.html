@@ -5,7 +5,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Clip App</title>
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 16px; background: #111; color: #eee; }
+    body { font-family: system-ui, sans-serif; margin: 0; background: #111; color: #eee; display: flex; min-height: 100vh; }
+    #sidebar { width: 200px; flex-shrink: 0; background: #181818; border-right: 1px solid #2a2a2a; padding: 16px 10px; position: sticky; top: 0; height: 100vh; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; }
+    #sidebar .brand { font-weight: bold; font-size: 1.15rem; margin: 0 8px 14px; }
+    #sidebar a { color: #ccc; text-decoration: none; padding: 10px 12px; border-radius: 6px; }
+    #sidebar a:hover { background: #242424; }
+    #sidebar a.active { background: #2563eb; color: #fff; }
+    #engine { margin-top: auto; padding: 8px; }
+    main { flex: 1; max-width: 900px; padding: 24px 24px 60px; min-width: 0; }
+    .view { display: none; }
+    .view.active { display: block; }
+    @media (max-width: 700px) {
+      body { flex-direction: column; }
+      #sidebar { width: 100%; height: auto; position: static; flex-direction: row; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid #2a2a2a; padding: 8px; }
+      #sidebar .brand { width: 100%; margin: 4px 8px 8px; }
+      #engine { width: 100%; margin-top: 4px; }
+      main { padding: 16px; }
+    }
     h1 { font-size: 1.5rem; }
     .box { background: #1b1b1b; border: 1px solid #333; border-radius: 8px; padding: 12px; margin-bottom: 16px; }
     .row { margin: 10px 0; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
@@ -32,50 +48,92 @@
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 </head>
 <body>
-  <h1>🎬 Clip App</h1>
-  <p>Step 4b: upload a video → AI picks 5 moments → 10 clips (YouTube Shorts + Facebook Reels) → download.</p>
+  <nav id="sidebar">
+    <div class="brand">🎬 Clip App</div>
+    <a href="#clips" data-view="clips">✂️ Clips</a>
+    <a href="#autoedit" data-view="autoedit">🎮 Auto-Edit</a>
+    <a href="#library" data-view="library">📚 Library</a>
+    <a href="#settings" data-view="settings">⚙️ Settings</a>
+    <div id="engine" class="hint">⏳ Loading engine...</div>
+  </nav>
 
-  <div class="box">
-    <b>⚙️ Gemini settings</b> <span class="hint">(key is saved only in this browser, never in GitHub)</span>
-    <div class="row">
-      <input type="password" id="apiKey" placeholder="Paste your Gemini API key (AIza...)" style="flex:1;min-width:240px;">
-      <button id="testKey">Test key</button>
-    </div>
-    <div class="row">
-      <label>Model: <select id="model"><option value="">(test key to load models)</option></select></label>
-      <label>Output:
-        <select id="res">
-          <option value="720:1280">720×1280 (recommended)</option>
-          <option value="1080:1920">1080×1920 (much slower)</option>
-        </select>
-      </label>
-    </div>
-    <div id="keyStatus" class="hint"></div>
-  </div>
+  <main>
+    <!-- ✂️ CLIPS -->
+    <section id="view-clips" class="view">
+      <h1>✂️ Clips</h1>
+      <p class="hint">Upload a long video → AI picks 5 moments → 10 clips (YouTube Shorts + Facebook Reels) → download.</p>
+      <div class="box">
+        <input type="file" id="fileInput" accept="video/*">
+        <div id="info" class="hint"></div>
+        <video id="player" controls muted></video>
+        <div class="row">
+          <label>Output:
+            <select id="res">
+              <option value="720:1280">720×1280 (recommended)</option>
+              <option value="1080:1920">1080×1920 (much slower)</option>
+            </select>
+          </label>
+        </div>
+        <div class="row">
+          <button id="goBtn" class="big" disabled>✨ Generate 10 clips</button>
+          <button id="zipBtn" class="big">⬇ Download all (ZIP)</button>
+        </div>
+        <div id="status">Loading ffmpeg...</div>
+        <div id="steps"></div>
+      </div>
+      <div id="results"></div>
+    </section>
 
-  <div class="box">
-    <input type="file" id="fileInput" accept="video/*">
-    <div id="info" class="hint"></div>
-    <video id="player" controls muted></video>
-    <div class="row">
-      <button id="goBtn" class="big" disabled>✨ Generate 10 clips</button>
-      <button id="zipBtn" class="big">⬇ Download all (ZIP)</button>
-    </div>
-    <div id="status">Loading ffmpeg...</div>
-    <div id="steps"></div>
-  </div>
+    <!-- 🎮 AUTO-EDIT -->
+    <section id="view-autoedit" class="view">
+      <h1>🎮 Auto-Edit</h1>
+      <p class="hint">Upload a full gaming video → AI removes loading screens, idle and boring parts, timelapses slow parts, adds effects and memes → one edited video.</p>
+      <div class="box"><b>🚧 Coming in step 3.</b> We'll build the Library first so Auto-Edit has memes and sounds to use.</div>
+    </section>
 
-  <div id="results"></div>
+    <!-- 📚 LIBRARY -->
+    <section id="view-library" class="view">
+      <h1>📚 Library</h1>
+      <p class="hint">Your memes, sound effects and royalty-free music, saved in this browser.</p>
+      <div class="box"><b>🚧 Coming in step 2.</b></div>
+    </section>
 
-  <details>
-    <summary class="hint">Technical log</summary>
-    <div id="log"></div>
-  </details>
+    <!-- ⚙️ SETTINGS -->
+    <section id="view-settings" class="view">
+      <h1>⚙️ Settings</h1>
+      <div class="box">
+        <b>Gemini AI</b> <span class="hint">(key is saved only in this browser, never in GitHub)</span>
+        <div class="row">
+          <input type="password" id="apiKey" placeholder="Paste your Gemini API key (AIza...)" style="flex:1;min-width:240px;">
+          <button id="testKey">Test key</button>
+        </div>
+        <div class="row">
+          <label>Model: <select id="model"><option value="">(test key to load models)</option></select></label>
+        </div>
+        <div id="keyStatus" class="hint"></div>
+      </div>
+    </section>
+
+    <details>
+      <summary class="hint">Technical log</summary>
+      <div id="log"></div>
+    </details>
+  </main>
 
   <script>
     const { FFmpeg } = FFmpegWASM;
     const ffmpeg = new FFmpeg();
     const $ = id => document.getElementById(id);
+
+    // ---------- sidebar navigation ----------
+    function showView() {
+      const name = (location.hash || '#clips').slice(1);
+      const view = $('view-' + name) ? name : 'clips';
+      document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + view));
+      document.querySelectorAll('#sidebar a').forEach(a => a.classList.toggle('active', a.dataset.view === view));
+    }
+    window.addEventListener('hashchange', showView);
+    showView();
     const toBlobURL = async (url, type) =>
       URL.createObjectURL(new Blob([await (await fetch(url)).arrayBuffer()], { type }));
     const LS = { get: k => { try { return localStorage.getItem(k) || ''; } catch { return ''; } },
@@ -130,9 +188,11 @@
       const font = await fetch('https://raw.githubusercontent.com/google/fonts/main/ofl/anton/Anton-Regular.ttf');
       await ffmpeg.writeFile('/fonts/Anton-Regular.ttf', new Uint8Array(await font.arrayBuffer()));
       status('✅ Ready. Pick a video.');
+      $('engine').textContent = '✅ Engine ready';
+      if (!LS.get('geminiKey')) status('✅ Ready. First add your Gemini key in ⚙️ Settings, then pick a video.');
       updateGo();
     }
-    loadFFmpeg().catch(e => { console.error(e); status('❌ Failed to load: ' + (e?.message || e)); });
+    loadFFmpeg().catch(e => { console.error(e); status('❌ Failed to load: ' + (e?.message || e)); $('engine').textContent = '❌ Engine failed'; });
 
     function updateGo() { $('goBtn').disabled = !(ffmpeg.loaded && file && duration > 0 && !busy); }
 
@@ -466,7 +526,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     // ---------- main ----------
     $('goBtn').addEventListener('click', async () => {
-      busy = true; updateGo();
+      busy = true; updateGo(); $('engine').textContent = '⚙️ Working on clips...';
       $('steps').innerHTML = ''; $('results').innerHTML = ''; $('zipBtn').style.display = 'none';
       outputs = []; plan = null;
       const t0 = performance.now();
@@ -525,7 +585,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         status('❌ ' + (e?.message || e));
         step(e?.message || String(e), 'fail');
       }
-      busy = false; updateGo();
+      busy = false; updateGo(); $('engine').textContent = '✅ Engine ready';
     });
 
     // ---------- ZIP ----------
