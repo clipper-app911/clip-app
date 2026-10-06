@@ -73,6 +73,12 @@
     .thumb img { width: 100%; aspect-ratio: 16/9; object-fit: cover; border-radius: 4px; cursor: zoom-in; }
     .thumbs { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
     .thumb .row { margin: 0; justify-content: space-between; }
+    .tb-list { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+    .tb-item { position: relative; width: 150px; background: #151515; border: 1px solid #333; border-radius: 6px; padding: 4px; }
+    .tb-item img { width: 100%; height: 100px; object-fit: contain; border-radius: 4px;
+      background: repeating-conic-gradient(#333 0 25%, #222 0 50%) 0 0/14px 14px; }
+    .tb-item .x { position: absolute; top: 2px; right: 2px; background: #000a; color: #fff; border: 0; border-radius: 50%; width: 24px; height: 24px; padding: 0; cursor: pointer; }
+    .tb-item .cap { font-size: 0.72rem; color: #aaa; text-align: center; margin-top: 2px; }
     .title-opts { display: flex; flex-direction: column; gap: 6px; }
     .title-opt { text-align: left; background: #151515; color: #eee; border: 1px solid #333; border-radius: 6px; padding: 10px; font-size: 0.95rem; }
     .title-opt.on { border-color: #2563eb; background: #172033; }
@@ -113,6 +119,7 @@
     <div class="brand">🎬 Clip App</div>
     <a href="#clips" data-view="clips">✂️ Clips</a>
     <a href="#autoedit" data-view="autoedit">🎮 Auto-Edit</a>
+    <a href="#thumbs" data-view="thumbs">🖼️ Thumbnail</a>
     <a href="#library" data-view="library">📚 Library</a>
     <a href="#settings" data-view="settings">⚙️ Settings</a>
     <div id="engine" class="hint">⏳ Loading engine...</div>
@@ -165,8 +172,8 @@
         </div>
         <div class="row">
           <button id="aeAnalyze" class="big" disabled>🔍 Analyze video</button>
-          <button id="aeRender" class="big" disabled>🎬 Render final video + 3 thumbnails</button>
-          <button id="aeThumbOnly" class="big" disabled style="background:#7c3aed">🖼️ Make 3 thumbnails only</button>
+          <button id="aeRender" class="big" disabled>🎬 Render final video</button>
+          <button id="aeThumbOnly" class="big" disabled style="display:none"></button>
         </div>
         <div id="aeStatus" class="status"></div>
         <div id="aeSteps" class="steps"></div>
@@ -211,15 +218,53 @@
         <video id="aeOutVid" controls></video>
         <div class="row">
           <a id="aeOutDl" class="upload-btn" download>⬇ Download video (MP4)</a>
+          <button id="aeToThumb">🖼️ Make a thumbnail for this video</button>
           <span id="aeOutInfo" class="hint"></span>
         </div>
       </div>
 
-      <div id="aeThumbBox" class="box" style="display:none">
+      <div id="aeThumbBox" class="box" style="display:none!important">
         <b>🖼️ Pick a thumbnail</b> <span class="hint">(1280×720 JPG, YouTube size · your son's real photo, never AI-changed)</span>
         <div id="aeThumbs" class="thumbs"></div>
         <div class="row"><button id="aeThumbRedo">🔄 Make 3 different thumbnails</button><span id="aeThumbStatus" class="hint"></span></div>
       </div>
+    </section>
+
+    <!-- 🖼️ THUMBNAIL -->
+    <section id="view-thumbs" class="view">
+      <h1>🖼️ Thumbnail</h1>
+      <p class="hint">Give it game screenshots, photos of your son, and the title. It makes 3 YouTube thumbnails (1280×720). His photo is only cut out, never redrawn, so his face stays exactly the same.</p>
+
+      <div class="box">
+        <b>🎮 Background: game screenshots</b> <span class="hint">(1–3 images; exciting, colorful moments work best)</span>
+        <div class="row"><label class="upload-btn">➕ Add screenshots<input type="file" id="tbBgFiles" multiple accept="image/*" hidden></label>
+          <span class="hint">Tip: pause the video at a cool moment and take a screenshot.</span></div>
+        <div id="tbBgList" class="tb-list"></div>
+      </div>
+
+      <div class="box">
+        <b>🙂 Your son</b> <span class="hint">(1–3 close-up photos; fun expressions: shocked, laughing, pointing, thumbs-up)</span>
+        <div class="row"><label class="upload-btn">➕ Add photos<input type="file" id="tbFaceFiles" multiple accept="image/*" hidden></label>
+          <label><input type="checkbox" id="tbUseLib" checked> Also use photos tagged <b>face</b> in the Library</label></div>
+        <div id="tbFaceList" class="tb-list"></div>
+      </div>
+
+      <div class="box">
+        <b>📝 Text</b>
+        <label class="field">Video title <input type="text" id="tbTitle" maxlength="100" placeholder="e.g. I Became a SHARK and Ate the Whole Beach!"></label>
+        <label class="field">What happens in the video <textarea id="tbDesc" rows="3" placeholder="e.g. Euann plays Shark Simulator, eats swimmers, destroys a boat and grows into a mega shark"></textarea></label>
+        <div class="row">
+          <label class="field" style="flex:1;margin:0">Game name <span class="hint">(optional, detected from the screenshot)</span><input type="text" id="tbGame" maxlength="40"></label>
+          <label class="field" style="flex:1;margin:0">Exact thumbnail text <span class="hint">(optional, e.g. <code>I'M A | SHARK!</code>)</span><input type="text" id="tbText" maxlength="40"></label>
+        </div>
+        <div class="row">
+          <button id="tbGo" class="big">✨ Generate 3 thumbnails</button>
+          <button id="tbRedo" class="big" style="background:#7c3aed;display:none">🔄 Make 3 different</button>
+        </div>
+        <div id="tbStatus" class="status"></div>
+      </div>
+
+      <div id="tbOut" class="thumbs"></div>
     </section>
 
     <!-- 📚 LIBRARY -->
@@ -2264,11 +2309,7 @@ ${TITLE_RULES}`;
         $('aeOutDl').href = url; $('aeOutDl').download = name;
         $('aeOutInfo').textContent = `${name} · ${fmtLen(r.seconds)} · ${(r.blob.size / 1024 / 1024).toFixed(0)} MB · ${$('aeRes').value.replace(':', '×')}`;
         $('aeOut').style.display = 'block';
-        const st = step('Making 3 thumbnails...');
-        const nFaces = await aeMakeThumbs(aeThumbVariant = 0);
-        $('aeThumbBox').scrollIntoView({ behavior: 'smooth' });
-        st.done('3 thumbnails ready' + (nFaces ? '' : ' (tip: tag photos of your son "face" in the Library to put him on them)'));
-        aeStatus(`✅ Done in ${r.minutes.toFixed(1)} min! Download the video and pick a thumbnail below.`);
+        aeStatus(`✅ Done in ${r.minutes.toFixed(1)} min! Download the video below, then make its thumbnail in the 🖼️ Thumbnail tab.`);
         $('aeOut').scrollIntoView({ behavior: 'smooth' });
       } catch (e) {
         console.error(e);
@@ -2535,17 +2576,19 @@ Best moments: ${plan.highlights.map(h => h.note).filter(Boolean).join('; ') || '
     // pick a zoom/crop of the frame that leaves out any facecam box (so he isn't shown twice)
     function cropAvoiding(frame, zoom, focusX, avoid) {
       const fw = frame.width, fh = frame.height;
-      const fits = (z, x0, y0) => { const w = fw / z * (1280 / 720) / (fw / fh) > 1 ? fw / z : fw / z, h = fh / z;
-        return { x0, y0, w, h, ok: !avoid.some(b => b.x < x0 + w && b.x + b.w > x0 && b.y < y0 + h && b.y + b.h > y0) }; };
-      const base = (z) => { const w = fw / z, h = fh / z; return { x0: Math.min(fw - w, Math.max(0, fw * focusX - w / 2)), y0: (fh - h) / 2 }; };
-      if (!avoid.length) { const b = base(zoom); return { ...b, w: fw / zoom, h: fh / zoom }; }
+      // 16:9 window that fits inside the image (works for screenshots of any shape)
+      const W0 = Math.min(fw, fh * 16 / 9), H0 = W0 * 9 / 16;
+      const fits = (z, x0, y0) => { const w = W0 / z, h = H0 / z;
+        return { ok: !avoid.some(b => b.x < x0 + w && b.x + b.w > x0 && b.y < y0 + h && b.y + b.h > y0) }; };
+      const base = (z) => { const w = W0 / z, h = H0 / z; return { x0: Math.min(fw - w, Math.max(0, fw * focusX - w / 2)), y0: (fh - h) / 2 }; };
+      if (!avoid.length) { const b = base(zoom); return { ...b, w: W0 / zoom, h: H0 / zoom }; }
       for (let z = zoom; z <= 2.2; z += 0.05) {
-        const w = fw / z, h = fh / z;
+        const w = W0 / z, h = H0 / z;
         const opts = [base(z), { x0: 0, y0: (fh - h) / 2 }, { x0: fw - w, y0: (fh - h) / 2 }, { x0: (fw - w) / 2, y0: 0 }, { x0: (fw - w) / 2, y0: fh - h },
                       { x0: 0, y0: 0 }, { x0: fw - w, y0: 0 }, { x0: 0, y0: fh - h }, { x0: fw - w, y0: fh - h }];
         for (const o of opts) { const r = fits(z, o.x0, o.y0); if (r.ok) return { x0: o.x0, y0: o.y0, w, h }; }
       }
-      const b = base(zoom); return { ...b, w: fw / zoom, h: fh / zoom };
+      const b = base(zoom); return { ...b, w: W0 / zoom, h: H0 / zoom };
     }
     function background(ctx, frame, zoom, focusX, rand, tint) {
       ctx.save();
@@ -2604,9 +2647,11 @@ Best moments: ${plan.highlights.map(h => h.note).filter(Boolean).join('; ') || '
         const pb = face ? drawPerson(ctx, face, 985, 770, 790, glow, 600) : { x: 1280, y: 0, w: 0, h: 0 };
         headline(ctx, idea.top, idea.main, face ? 375 : 640, 530, face ? 650 : 1100, 'center', rand, palette);
         gameBadge(ctx, game, 26, 26, 380);
-        ring(hs.x, hs.y, 120, 95);
-        const fromX = face ? pb.x - 20 : hs.x + 330, fromY = 140;
-        curvedArrow(ctx, fromX, fromY, hs.x + (fromX > hs.x ? 130 : -130), hs.y - 40, fromX > hs.x ? 70 : -70);
+        if (!frame._plain) {             // only circle real action, never an empty background
+          ring(hs.x, hs.y, 120, 95);
+          const fromX = face ? pb.x - 20 : hs.x + 330, fromY = 140;
+          curvedArrow(ctx, fromX, fromY, hs.x + (fromX > hs.x ? 130 : -130), hs.y - 40, fromX > hs.x ? 70 : -70);
+        }
         burst(ctx, idea.burst, face ? Math.max(pb.x + 10, 760) : 1090, face ? Math.max(pb.y + 40, 110) : 130, 70, rand, ['#ffd400', '#e11d2a']);
         drawLogo(ctx, logo, 24, 614, 92);
       } else {                                        // action circled, headline top, person bottom-right
@@ -2614,9 +2659,9 @@ Best moments: ${plan.highlights.map(h => h.note).filter(Boolean).join('; ') || '
         if (face) lightRays(ctx, 1070, 500, glow, rand, 0.18);
         const hs = hotspot(ctx.canvas, [face ? { x: 820, y: 180, w: 460, h: 540 } : { x: 1280, y: 720, w: 0, h: 0 }, { x: 60, y: 0, w: 1160, h: 280 }, { x: 0, y: 540, w: 400, h: 180 }]);
         const pb = face ? drawPerson(ctx, face, 1065, 770, 600, glow, 470) : { x: 1280, y: 720, w: 0, h: 0 };
-        ring(hs.x, hs.y);
+        if (!frame._plain) ring(hs.x, hs.y);
         headline(ctx, idea.top, idea.main, 640, 150, 1060, 'center', rand, palette);
-        if (face) curvedArrow(ctx, pb.x + 20, pb.y + 40, hs.x + 150, hs.y, -60);
+        if (face && !frame._plain) curvedArrow(ctx, pb.x + 20, pb.y + 40, hs.x + 150, hs.y, -60);
         gameBadge(ctx, game, 24, 570, 330);
         burst(ctx, idea.burst, hs.x < 640 ? Math.min(hs.x + 260, 820) : Math.max(hs.x - 260, 160), Math.min(hs.y + 150, 600), 66, rand);
       }
@@ -2828,6 +2873,169 @@ Best moments: ${plan.highlights.map(h => h.note).filter(Boolean).join('; ') || '
       const logoItem = (await libAll()).find(i => i.id === brand.outroImg);
       const logo = logoItem ? await createImageBitmap(logoItem.blob) : null;
       return { faces, logo, photos: photos.length };
+    };
+
+
+    // =====================================================================
+    // 🖼️ THUMBNAIL TAB
+    // =====================================================================
+    const tb = { bgs: [], faces: [], blobs: [], pick: 0, variant: 0 };
+    const tbStatus = t => $('tbStatus').textContent = t;
+    function tbList(listId, arr, kind) {
+      const box = $(listId); box.innerHTML = '';
+      arr.forEach((it, i) => {
+        const d = document.createElement('div'); d.className = 'tb-item';
+        d.innerHTML = `<img src="${it.preview}"><button class="x" title="Remove">✕</button><div class="cap"></div>`;
+        d.querySelector('.cap').textContent = it.note || '';
+        d.querySelector('.x').onclick = () => { arr.splice(i, 1); tbList(listId, arr, kind); };
+        box.appendChild(d);
+      });
+    }
+    $('tbBgFiles').addEventListener('change', async e => {
+      for (const f of [...e.target.files].slice(0, 3 - tb.bgs.length)) {
+        const bmp = await createImageBitmap(f);
+        tb.bgs.push({ bmp, preview: URL.createObjectURL(f), note: `${bmp.width}×${bmp.height}` });
+      }
+      e.target.value = ''; tbList('tbBgList', tb.bgs, 'bg');
+    });
+    $('tbFaceFiles').addEventListener('change', async e => {
+      const files = [...e.target.files].slice(0, 3);
+      e.target.value = '';
+      for (const f of files) {
+        tbStatus(`✂️ Cutting out his head and shoulders (${tb.faces.length + 1})... first time loads the face model`);
+        try {
+          const bmp = await createImageBitmap(f);
+          const r = await makeHeadCut(bmp);
+          if (r) {
+            tb.faces.push({ bmp: await createImageBitmap(r.blob), cutout: true, faceW: r.faceW, preview: URL.createObjectURL(r.blob),
+              note: r.faceW < 110 ? '⚠️ far away: may be blurry' : '✅ cut-out ready' });
+          } else {
+            tb.faces.push({ bmp, cutout: false, faceW: 0, preview: URL.createObjectURL(f), note: '⚠️ no face found' });
+          }
+        } catch (err) { console.error(err); tbStatus('❌ Could not cut out a photo: ' + err.message); }
+        tbList('tbFaceList', tb.faces, 'face');
+      }
+      tbStatus('');
+    });
+
+    async function tbBrief(title, desc, game, bgs, variant) {
+      const parts = [];
+      for (let i = 0; i < bgs.length; i++) {
+        const c = new OffscreenCanvas(480, 270); c.getContext('2d').drawImage(bgs[i].bmp, 0, 0, 480, 270);
+        parts.push({ text: `Screenshot ${i}:` }, { inline_data: { mime_type: 'image/jpeg', data: await blobToBase64(await c.convertToBlob({ type: 'image/jpeg', quality: 0.8 })) } });
+      }
+      parts.push({ text: `Write YouTube THUMBNAIL text for a kid's gaming video.
+Title: "${title}"
+What happens: ${desc || '(not given)'}
+Game: ${game || '(detect it from the screenshots, empty string if unsure)'}
+
+Return:
+- game: short game name.
+- ideas: exactly 3 DIFFERENT ideas in the style of top kid gaming YouTubers. Each:
+  - top: 1-4 small set-up words (e.g. "I'M A", "I USED A CHEAT CODE...", "I DID NOT EXPECT"), can be empty
+  - main: 1-2 HUGE punchline words, max 14 characters (e.g. "SHARK!", "PLANE!", "THIS TO HAPPEN")
+  - burst: 1-2 word reaction for a comic bubble (e.g. "OMG!", "WOW!", "NO WAY!", "EPIC!")
+  - frame: which screenshot number fits best (0-${Math.max(0, bgs.length - 1)})
+Must match the title/what happens, be kid-friendly, no emojis. ${variant ? 'Give NEW angles, different from obvious first ideas.' : ''}` });
+      const schema = { type: 'OBJECT', properties: {
+        game: { type: 'STRING' },
+        ideas: { type: 'ARRAY', items: { type: 'OBJECT', properties: {
+          top: { type: 'STRING' }, main: { type: 'STRING' }, burst: { type: 'STRING' }, frame: { type: 'INTEGER' } },
+          required: ['top', 'main', 'burst', 'frame'] } } }, required: ['game', 'ideas'] };
+      const text = await geminiRobust({ contents: [{ parts }],
+        generationConfig: { responseMimeType: 'application/json', responseSchema: schema, temperature: variant ? 1.0 : 0.7 } }, t => tbStatus('🤖 ' + t));
+      const b = JSON.parse(text);
+      b.ideas = (b.ideas || []).slice(0, 3).map(i => ({ top: String(i.top || '').toUpperCase().slice(0, 30), main: String(i.main || '').toUpperCase().slice(0, 16),
+        burst: String(i.burst || 'OMG!').toUpperCase().slice(0, 10), frame: Math.max(0, Math.min(bgs.length - 1, i.frame | 0)) }));
+      return b;
+    }
+    // plain colourful background when no screenshot is given
+    async function tbDefaultBg() {
+      const c = new OffscreenCanvas(1280, 720), x = c.getContext('2d');
+      const g = x.createLinearGradient(0, 0, 1280, 720); g.addColorStop(0, '#0b2a6b'); g.addColorStop(0.5, '#1d6fe0'); g.addColorStop(1, '#7c1fd1');
+      x.fillStyle = g; x.fillRect(0, 0, 1280, 720);
+      for (let i = 0; i < 40; i++) { x.fillStyle = `rgba(255,255,255,${0.04 + Math.random() * 0.08})`; x.fillRect(Math.random() * 1280, Math.random() * 720, 20 + Math.random() * 200, 8 + Math.random() * 30); }
+      const bmp = await createImageBitmap(c); bmp._plain = true; return bmp;
+    }
+
+    async function tbGenerate(variant) {
+      const title = $('tbTitle').value.trim(), desc = $('tbDesc').value.trim();
+      if (!title && !desc && !$('tbText').value.trim()) { tbStatus('❌ Add a title (and ideally what happens in the video) first.'); return; }
+      if (busy) { tbStatus('⏳ The engine is busy with another job. Try again when it finishes.'); return; }
+      busy = true; updateGo(); $('tbGo').disabled = $('tbRedo').disabled = true;
+      try {
+        tbStatus('⚙️ Loading fonts...'); await loadThumbFonts();
+        // backgrounds (+ find any facecam in them so it can be cropped away)
+        let bgs = tb.bgs.length ? tb.bgs : [{ bmp: await tbDefaultBg() }];
+        tbStatus('⚙️ Checking screenshots for a facecam...');
+        for (const b of bgs) if (!b.bmp._faces) b.bmp._faces = (await facesInFrame(b.bmp)).map(f => ({ x: f.x - f.w * 0.6, y: f.y - f.h * 0.6, w: f.w * 2.2, h: f.h * 2.4 }));
+        // faces: uploaded + library
+        let faces = tb.faces.filter(f => f.cutout);
+        tbStatus('✂️ Preparing Library photos...');
+        const lf = await loadFaces();
+        if ($('tbUseLib').checked) faces = faces.concat(lf.faces);
+        faces.sort((a, b) => (b.faceW || 0) - (a.faceW || 0));
+        const logo = lf.logo;
+        // text
+        let game = $('tbGame').value.trim(), ideas;
+        const exact = $('tbText').value.trim().toUpperCase();
+        if (exact) {
+          const [a, b] = exact.includes('|') ? exact.split('|').map(t => t.trim()) : ['', exact];
+          ideas = [0, 1, 2].map(i => ({ top: a, main: b, burst: ['OMG!', 'NO WAY!', 'EPIC!'][(i + variant) % 3], frame: i % bgs.length }));
+        }
+        if (!ideas || !game) {
+          try {
+            const br = await tbBrief(title, desc, game, tb.bgs.length ? bgs : [], variant);
+            if (!game && br.game) { game = br.game; $('tbGame').value = game; }
+            if (!ideas) ideas = br.ideas;
+          } catch (e) {
+            console.warn(e);
+            if (!ideas) { const w = (title || 'WATCH THIS!').toUpperCase().split(/\s+/);
+              ideas = [0, 1, 2].map(i => ({ top: w.slice(0, -1).slice(-3).join(' '), main: w[w.length - 1].slice(0, 14), burst: ['OMG!', 'NO WAY!', 'EPIC!'][i], frame: i % bgs.length })); }
+          }
+        }
+        while (ideas.length < 3) ideas.push({ ...ideas[ideas.length - 1] });
+        tbStatus('🎨 Designing thumbnails...');
+        tb.blobs = [];
+        for (let i = 0; i < 3; i++) {
+          const idea = ideas[i];
+          const bg = bgs[(idea.frame ?? i) % bgs.length] || bgs[i % bgs.length];
+          const face = faces.length ? faces[(i + variant) % faces.length] : null;
+          tb.blobs.push(await canvasToJpeg(renderThumbV2(i + variant, bg.bmp, idea, game, face, logo, variant * 7 + i + 1)));
+        }
+        tb.pick = 0; tbShow();
+        tbStatus(faces.length ? '✅ Done! Pick one below.' : '✅ Done! Tip: add photos of your son above to put him on the thumbnails.');
+        $('tbRedo').style.display = 'inline-block';
+      } catch (e) { console.error(e); tbStatus('❌ ' + (e?.message || e)); }
+      busy = false; updateGo(); $('tbGo').disabled = $('tbRedo').disabled = false;
+    }
+    function tbShow() {
+      const box = $('tbOut'); box.innerHTML = '';
+      const base = slug($('tbTitle').value || 'thumbnail');
+      tb.blobs.forEach((b, i) => {
+        const url = URL.createObjectURL(b);
+        const card = document.createElement('div'); card.className = 'thumb' + (i === tb.pick ? ' on' : '');
+        card.innerHTML = `<img src="${url}"><div class="row"><button>${i === tb.pick ? '✅ Selected' : 'Use this one'}</button>
+          <a href="${url}" download="${base}-thumbnail-${i + 1}.jpg">⬇ Download</a></div>
+          <span class="hint">${(b.size / 1024).toFixed(0)} KB · 1280×720 · click to view full size</span>`;
+        card.querySelector('button').onclick = () => { tb.pick = i; tbShow(); };
+        card.querySelector('img').onclick = () => window.open(url, '_blank');
+        box.appendChild(card);
+      });
+    }
+    $('tbGo').onclick = () => { tb.variant = 0; tbGenerate(0); };
+    $('tbRedo').onclick = () => { tb.variant++; tbGenerate(tb.variant); };
+
+    // shortcut from Auto-Edit: fill in the title / description / game
+    $('aeToThumb').onclick = () => {
+      if (ae.plan) {
+        $('tbTitle').value = ae.plan.title || '';
+        const what = ae.plan.highlights.map(h => h.note).filter(Boolean).join(', ');
+        $('tbDesc').value = [ae.plan.description, what && 'Best moments: ' + what].filter(Boolean).join(' ');
+        if (ae.plan.game) $('tbGame').value = ae.plan.game;
+      }
+      location.hash = '#thumbs';
+      tbStatus('📸 Add 1–3 game screenshots and photos of your son, then click Generate.');
     };
   </script>
 </body>
