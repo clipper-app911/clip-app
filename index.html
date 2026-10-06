@@ -66,6 +66,16 @@
     .ae-row .why { color: #bbb; }
     .ae-row .dot { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; }
     @media (max-width: 700px) { .ae-row { grid-template-columns: 34px 1fr; } }
+    #aeOutVid { width: 100%; aspect-ratio: 16/9; background: #000; border-radius: 8px; margin: 10px 0; }
+    .thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; margin: 8px 0; }
+    .thumb { background: #151515; border: 2px solid #333; border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+    .thumb.on { border-color: #22c55e; }
+    .thumb img { width: 100%; aspect-ratio: 16/9; object-fit: cover; border-radius: 4px; }
+    .thumb .row { margin: 0; justify-content: space-between; }
+    .title-opts { display: flex; flex-direction: column; gap: 6px; }
+    .title-opt { text-align: left; background: #151515; color: #eee; border: 1px solid #333; border-radius: 6px; padding: 10px; font-size: 0.95rem; }
+    .title-opt.on { border-color: #2563eb; background: #172033; }
+    .title-opt small { color: #888; margin-left: 6px; }
     .field { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; font-size: 0.85rem; color: #bbb; }
     .field input, .field textarea { padding: 8px; background: #222; color: #eee; border: 1px solid #444; border-radius: 4px; font-family: inherit; }
     .brand-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 10px; }
@@ -95,6 +105,7 @@
   </style>
   <script src="ffmpeg.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mp4-muxer@5.2.2/build/mp4-muxer.js"></script>
 </head>
 <body>
   <nav id="sidebar">
@@ -153,7 +164,7 @@
         </div>
         <div class="row">
           <button id="aeAnalyze" class="big" disabled>🔍 Analyze video</button>
-          <button id="aeRender" class="big" disabled title="Coming in the next step">🎬 Render edited video (next step)</button>
+          <button id="aeRender" class="big" disabled>🎬 Render final video + 3 thumbnails</button>
         </div>
         <div id="aeStatus" class="status"></div>
         <div id="aeSteps" class="steps"></div>
@@ -178,10 +189,30 @@
         <div id="aeHiList" class="ae-list"></div>
         <h3>🎵 Music warnings</h3>
         <div id="aeMusicList" class="ae-list"></div>
-        <h3>📝 YouTube details</h3>
-        <label class="field">Title <input type="text" id="aeTitle" maxlength="100"></label>
-        <label class="field">Description <textarea id="aeDesc" rows="4"></textarea></label>
+        <h3>📝 YouTube details <span class="hint">(filled in automatically, edit anything)</span></h3>
+        <div class="field">Pick a title
+          <div id="aeTitleOpts" class="title-opts"></div>
+          <button id="aeMoreTitles" style="align-self:flex-start">✨ More catchy title ideas</button>
+        </div>
+        <label class="field">Title (what will be used) <input type="text" id="aeTitle" maxlength="100"></label>
+        <label class="field">Description hook <span class="hint">(chapters, subscribe line and hashtags are added below automatically)</span><textarea id="aeDesc" rows="3"></textarea></label>
         <label class="field">Tags <input type="text" id="aeTags"></label>
+        <label class="field">Full description preview (copy this into YouTube)
+          <textarea id="aeFullDesc" rows="12" readonly></textarea>
+        </label>
+        <button id="aeCopyDesc" style="align-self:flex-start">📋 Copy description</button>
+      </div>
+
+      <div id="aeOut" class="box" style="display:none">
+        <b>🎉 Your video is ready</b>
+        <video id="aeOutVid" controls></video>
+        <div class="row">
+          <a id="aeOutDl" class="upload-btn" download>⬇ Download video (MP4)</a>
+          <span id="aeOutInfo" class="hint"></span>
+        </div>
+        <h3>🖼️ Pick a thumbnail <span class="hint">(1280×720 JPG, YouTube size)</span></h3>
+        <div id="aeThumbs" class="thumbs"></div>
+        <div class="row"><button id="aeThumbRedo">🔄 Make 3 different thumbnails</button><span id="aeThumbStatus" class="hint"></span></div>
       </div>
     </section>
 
@@ -205,6 +236,7 @@
             <label>Logo image <select id="brOutroImg"></select></label>
             <label>Outro music <select id="brOutroSnd"></select></label>
             <label>Bottom line <input type="text" id="brOutroLine" maxlength="40"></label>
+            <label>Channel name <input type="text" id="brChannel" maxlength="40" placeholder="e.g. Euann Playz"></label>
             <button id="brOutroBtn">▶ Preview outro</button>
             <video id="brOutroVid" controls></video>
           </div>
@@ -214,7 +246,7 @@
       <div class="box">
         <div class="row">
           <label class="upload-btn">➕ Add files<input type="file" id="libFiles" multiple accept="video/*,audio/*,image/*" hidden></label>
-          <span class="hint">Select many at once. Photos → Images · videos/GIFs → Meme clips · audio under 15s → Sound effects · longer audio → Music</span>
+          <span class="hint">Select many at once. Photos → Images · videos/GIFs → Meme clips · audio under 15s → Sound effects · longer audio → Music. Tag photos of your son <b>face</b> to use them in thumbnails.</span>
         </div>
         <div id="libDrop" class="drop">or drag & drop files here</div>
         <div id="libStatus" class="hint"></div>
@@ -752,7 +784,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     // =====================================================================
     // 📚 LIBRARY (stored in this browser with IndexedDB)
     // =====================================================================
-    const QUICK_TAGS = ['funny', 'fail', 'win', 'shocked', 'bruh', 'hype', 'sad', 'scary', 'rage', 'victory', 'intro', 'outro'];
+    const QUICK_TAGS = ['face', 'funny', 'fail', 'win', 'shocked', 'bruh', 'hype', 'sad', 'scary', 'rage', 'victory', 'whoosh', 'timelapse'];
     const TYPE_LABEL = { meme: '🎞️ Meme clip', sfx: '🔊 Sound effect', music: '🎵 Music', image: '🖼️ Image' };
     let libItems = [], libFilter = 'all', libURLs = [];
 
@@ -930,7 +962,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     // =====================================================================
     // 🎬 CHANNEL INTRO & OUTRO (generated from Library images)
     // =====================================================================
-    const BRAND_DEFAULTS = { introImg: '', introSnd: '', outroImg: '', outroSnd: '', outroLine: 'NEW VIDEOS EVERY DAY' };
+    const BRAND_DEFAULTS = { introImg: '', introSnd: '', outroImg: '', outroSnd: '', outroLine: 'NEW VIDEOS EVERY DAY', channel: 'Euann Playz' };
     let brand = { ...BRAND_DEFAULTS, ...(JSON.parse(LS.get('branding') || '{}')) };
     const saveBrand = () => LS.set('branding', JSON.stringify(brand));
     const FONT = '/fonts/Anton-Regular.ttf';
@@ -958,7 +990,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
       $('brIntroSnd').innerHTML = sndOpts(brand.introSnd);
       $('brOutroSnd').innerHTML = sndOpts(brand.outroSnd);
       $('brOutroLine').value = brand.outroLine;
+      $('brChannel').value = brand.channel || '';
     };
+    $('brChannel').onchange = e => { brand.channel = e.target.value.trim(); saveBrand(); if (window.aeRenderReview && ae.plan) aeRenderReview(); };
     $('brIntroImg').onchange = e => { brand.introImg = e.target.value; saveBrand(); };
     $('brOutroImg').onchange = e => { brand.outroImg = e.target.value; saveBrand(); };
     $('brIntroSnd').onchange = e => { brand.introSnd = e.target.value; saveBrand(); };
@@ -991,7 +1025,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     }
 
     // Exposed for Auto-Edit: returns an MP4 Blob, rendered natively at w×h (default Full HD)
-    window.makeIntro = async (w = 1920, h = 1080) => {
+    window.makeIntro = async (w = 1920, h = 1080, opts = {}) => {
       const item = await libGet(brand.introImg);
       if (!item) throw new Error('Pick a banner image for the intro.');
       await ensureBrandDir();
@@ -1005,16 +1039,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         '-filter_complex',
         `[0]scale=-2:${h},crop=${w}:${h},boxblur=20:2,eq=brightness=-0.25[bg];` +
         `[1]scale=w='trunc(${w}*min(1\\,0.75+0.5*t)/2)*2':h=-2:eval=frame[fg];` +
-        `[bg][fg]overlay=x=(W-w)/2:y=(H-h)/2:eval=frame,fade=t=in:st=0:d=0.3,fade=t=out:st=${D - 0.4}:d=0.4,setsar=1,format=yuv420p[v];` +
+        `[bg][fg]overlay=x=(W-w)/2:y=(H-h)/2:eval=frame,fade=t=in:st=0:d=0.3,fade=t=out:st=${D - 0.4}:d=0.4,setsar=1,scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,fps=30,settb=1/30[v];` +
         aud.filter,
-        '-map', '[v]', '-map', '[aout]', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '21', '-r', '30',
+        '-map', '[v]', '-map', '[aout]', ...(opts.venc || ['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '21', '-r', '30']),
+        ...(opts.frames ? ['-frames:v', String(opts.frames)] : []),
         '-c:a', 'aac', '-b:a', '160k', '-ar', '48000', '-shortest', '-movflags', '+faststart', '/brand/intro.mp4',
       ]);
       const data = await ffmpeg.readFile('/brand/intro.mp4');
       return new Blob([data.buffer], { type: 'video/mp4' });
     };
 
-    window.makeOutro = async (w = 1920, h = 1080) => {
+    window.makeOutro = async (w = 1920, h = 1080, opts = {}) => {
       const item = await libGet(brand.outroImg);
       if (!item) throw new Error('Pick a logo image for the outro.');
       await ensureBrandDir();
@@ -1049,9 +1084,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
           `drawbox=x=${bx - R(8)}:y=${by - R(8)}:w=${bw + R(16)}:h=${bh + R(16)}:color=0xFF4444@0.5:t=${R(6)}:enable='between(mod(t\\,1.2)\\,0.6\\,0.9)'`,
           T(3, 58, 'white', `${bx}+(${bw}-text_w)/2`, `${by}+(${bh}-text_h)/2`),
           ...(brand.outroLine ? [T(4, 36, '0x6CCFFF', bx, R(505), `:borderw=${R(3)}:bordercolor=black`)] : []),
-          `fade=t=in:st=0:d=0.5,fade=t=out:st=${D - 0.5}:d=0.5,setsar=1,format=yuv420p[v]`,
+          `fade=t=in:st=0:d=0.5,fade=t=out:st=${D - 0.5}:d=0.5,setsar=1,scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,fps=30,settb=1/30[v]`,
         ].join(',') + ';' + aud.filter,
-        '-map', '[v]', '-map', '[aout]', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '21', '-r', '30',
+        '-map', '[v]', '-map', '[aout]', ...(opts.venc || ['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '21', '-r', '30']),
+        ...(opts.frames ? ['-frames:v', String(opts.frames)] : []),
         '-c:a', 'aac', '-b:a', '160k', '-ar', '48000', '-shortest', '-movflags', '+faststart', '/brand/outro.mp4',
       ]);
       const data = await ffmpeg.readFile('/brand/outro.mp4');
@@ -1166,7 +1202,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
       const lines = [];
       const hook = m => { lines.push(m); if (onLine) onLine(m); };
       logHooks.push(hook);
-      try { await ffmpeg.exec(args); } finally { logHooks.splice(logHooks.indexOf(hook), 1); }
+      try { lines.code = await ffmpeg.exec(args); } finally { logHooks.splice(logHooks.indexOf(hook), 1); }
       return lines;
     }
     function parseRanges(lines, startKey, endKey) {
@@ -1235,10 +1271,22 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
           kind: { type: 'STRING', enum: ['song', 'game_music'] },
           action: { type: 'STRING', enum: ['mute', 'lower', 'keep'] }, note: { type: 'STRING' } },
           required: ['start', 'end', 'kind', 'action', 'note'] } },
-        title: { type: 'STRING' }, description: { type: 'STRING' }, tags: { type: 'ARRAY', items: { type: 'STRING' } },
+        title_options: { type: 'ARRAY', items: { type: 'STRING' } },
+        description: { type: 'STRING' }, tags: { type: 'ARRAY', items: { type: 'STRING' } },
+        chapters: { type: 'ARRAY', items: { type: 'OBJECT', properties: { time: { type: 'NUMBER' }, title: { type: 'STRING' } }, required: ['time', 'title'] } },
+        thumbnails: { type: 'ARRAY', items: { type: 'OBJECT', properties: { time: { type: 'NUMBER' }, text: { type: 'STRING' } }, required: ['time', 'text'] } },
       },
-      required: ['segments', 'highlights', 'music', 'title', 'description', 'tags'],
+      required: ['segments', 'highlights', 'music', 'title_options', 'description', 'tags', 'chapters', 'thumbnails'],
     };
+
+    // Shared rules for catchy, honest YouTube titles (used by the main analysis and by "More title ideas")
+    const TITLE_RULES = `TITLE RULES (make them catchy, never plain):
+- Write like top kid-friendly gaming YouTubers: curiosity, emotion, stakes or a challenge.
+- Use proven patterns, e.g. "I Tried ___ And THIS Happened...", "This ___ Was IMPOSSIBLE!", "I Almost LOST Everything In ___", "Can I Win With Only ___?", "The CRAZIEST ___ Ever!", "Don't Do THIS In ___ (Gone Wrong)".
+- Put the game name in the title when you can tell what game it is.
+- CAPITALIZE 1-2 key words for punch. At most one emoji. 40-65 characters.
+- Must be TRUE to what happens in the video (no fake clickbait) and safe for a kid's channel.
+- Bad (too plain): "Minecraft Gameplay Part 3". Good: "I Built a SECRET Base and My Friend Found It 😱".`;
 
     function aePrompt(scan, maxMin) {
       const r = a => a.map(([s, e]) => `${s.toFixed(1)}-${e.toFixed(1)}`).join(', ') || 'none';
@@ -1262,7 +1310,13 @@ Rules:
 Also list:
 - highlights: the best moments (time in seconds) with kind and a suggested effect: "zoom" (punch-in on a reaction), "slowmo" (epic play), "sfx" (sound effect like bruh/vine boom), "meme" (short meme clip), or "none". Pick at most 15, spread across the video.
 - music: stretches where a recognizable copyrighted SONG plays (action "mute") or loud game soundtrack plays without commentary (kind "game_music", action "lower"). Empty list if none.
-- title (max 70 chars, exciting, kid-friendly, no clickbait lies), description (2-3 sentences + 3-5 hashtags), tags (5-10).`;
+- title_options: exactly 3 different catchy titles (see rules below), best first.
+- description: 2-3 punchy sentences that hook the viewer and tease the best moments (no hashtags, no timestamps; those are added automatically).
+- tags: 8-12 search tags (game name, game modes, "funny moments", etc.).
+- chapters: 3-8 chapter markers {time, title} at the start of each distinct part of the gameplay, using times from the ORIGINAL video (only inside parts you keep). Short fun titles, e.g. "The Big Fail", "Boss Fight".
+- thumbnails: exactly 3 ideas {time, text}: a time of a visually exciting frame (inside a kept part) and 2-4 word BIG thumbnail text, e.g. "SO CLOSE!", "IT WORKED?!", "1 HP LEFT". Make the 3 ideas different from each other.
+
+${TITLE_RULES}`;
     }
 
     async function aeAskAI(scan, maxMin, onInfo) {
@@ -1315,9 +1369,15 @@ Also list:
         kind: m.kind === 'song' ? 'song' : 'game_music', action: ['mute', 'lower', 'keep'].includes(m.action) ? m.action : 'lower',
         note: String(m.note || '').slice(0, 100),
       })).filter(m => m.end - m.start > 1);
+      const titles = (Array.isArray(raw.title_options) ? raw.title_options : [raw.title]).map(t => String(t || '').trim()).filter(Boolean).slice(0, 5);
+      const chapters = (raw.chapters || []).map(c => ({ time: Math.max(0, Math.min(D, +c.time || 0)), title: String(c.title || '').slice(0, 60) }))
+        .filter(c => c.title).sort((a, b) => a.time - b.time);
+      const thumbs = (raw.thumbnails || []).map(t => ({ time: Math.max(0, Math.min(D - 0.5, +t.time || 0)), text: String(t.text || '').slice(0, 30) }))
+        .filter(t => t.text).slice(0, 3);
       return { segments: merged, highlights: hl, music,
-        title: String(raw.title || '').slice(0, 100), description: String(raw.description || ''),
-        tags: Array.isArray(raw.tags) ? raw.tags.slice(0, 15) : [], source: raw.source || 'ai', autoCut: [] };
+        titles, title: titles[0] || '', description: String(raw.description || ''),
+        tags: Array.isArray(raw.tags) ? raw.tags.slice(0, 15) : [], chapters, thumbs,
+        source: raw.source || 'ai' };
     }
 
     // fallback plan when AI is unavailable: frozen + silent stretches are cut
@@ -1502,6 +1562,680 @@ Also list:
         step(e?.message || String(e), 'fail');
       }
       onProgress = null;
+      busy = false; updateGo(); $('engine').textContent = '✅ Engine ready';
+    });
+
+
+    // =====================================================================
+    // 🎮 AUTO-EDIT · part 2: titles, description, render, thumbnails
+    // =====================================================================
+    const FPS = 30;
+    const VENC = ['-c:v', 'libx264', '-preset', 'ultrafast', '-profile:v', 'high', '-level:v', '4.2', '-bf', '0',
+      '-g', '60', '-keyint_min', '60', '-sc_threshold', '0', '-pix_fmt', 'yuv420p', '-crf', '23',
+      '-maxrate', '8M', '-bufsize', '16M', '-r', String(FPS),
+      // identical stream headers on every piece (so the joined file plays correctly everywhere): HD colors, chroma position
+      '-color_range', 'tv', '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-chroma_sample_location', 'left'];
+    const VTAIL = `scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,fps=${FPS},settb=1/${FPS}`;
+    const KIND_TAGS = { funny: ['funny', 'bruh'], fail: ['fail', 'bruh', 'funny'], win: ['win', 'victory', 'hype'],
+      shocked: ['shocked', 'scary'], hype: ['hype', 'win'], rage: ['rage', 'fail'], scary: ['scary', 'shocked'], sad: ['sad', 'fail'] };
+
+    function pickByKind(items, kind, used) {
+      const tags = KIND_TAGS[kind] || [kind];
+      const pool = items.filter(i => tags.some(t => i.tags.includes(t)));
+      const list = (pool.length ? pool : items);
+      if (!list.length) return null;
+      const fresh = list.filter(i => !used.has(i.id));
+      const pick = (fresh.length ? fresh : list)[0];
+      used.add(pick.id);
+      return pick;
+    }
+
+    // ---- turn the plan into an exact list of output pieces (frame-exact, so audio can be built first) ----
+    function aeBuildPieces(plan, lib = []) {
+      const memes = lib.filter(i => i.type === 'meme'), sfx = lib.filter(i => i.type === 'sfx');
+      const usedM = new Set(), usedS = new Set();
+      const pieces = [], fx = [];
+      let frames = 0;
+      const push = p => { if (p.frames >= 2) { p.out = frames / FPS; frames += p.frames; pieces.push(p); } };
+      const srcPieces = (a, b, mode, speed = 1) => {
+        const maxSrc = mode === 'speed' ? 60 * speed : 60;          // keep each rendered piece ~1 minute
+        for (let t = a; t < b - 0.05; t += maxSrc) {
+          const e = Math.min(b, t + maxSrc);
+          const outLen = mode === 'speed' ? (e - t) / speed : mode === 'slow' ? (e - t) * 2 : (e - t);
+          push({ type: 'src', mode, a: t, b: e, speed, frames: Math.round(outLen * FPS) });
+        }
+      };
+      push({ type: 'intro', frames: Math.round(INTRO_LEN * FPS) });
+      for (const seg of plan.segments) {
+        if (seg.action === 'cut') continue;
+        if (seg.action === 'speed') { srcPieces(seg.start, seg.end, 'speed', seg.speed); continue; }
+        // keep: split around zoom / slow-mo windows, insert memes, schedule sound effects
+        const hls = plan.highlights.filter(h => h.on && h.time >= seg.start && h.time < seg.end);
+        const events = [];
+        for (const h of hls) {
+          if (h.effect === 'zoom') events.push({ a: Math.max(seg.start, h.time - 0.6), b: Math.min(seg.end, h.time + 1.4), mode: 'zoom', h });
+          else if (h.effect === 'slowmo') events.push({ a: Math.max(seg.start, h.time - 1), b: Math.min(seg.end, h.time + 1), mode: 'slow', h });
+          else if (h.effect === 'meme') events.push({ a: Math.min(seg.end, h.time + 1.5), b: Math.min(seg.end, h.time + 1.5), mode: 'meme', h });
+          else if (h.effect === 'sfx') events.push({ a: h.time, b: h.time, mode: 'sfx', h });
+        }
+        events.sort((x, y) => x.a - y.a);
+        let t = seg.start;
+        for (const ev of events) {
+          if (ev.a < t) continue;                       // overlaps a previous effect: skip
+          if (ev.a > t) srcPieces(t, ev.a, 'normal');
+          if (ev.mode === 'zoom' || ev.mode === 'slow') {
+            if (ev.b - ev.a > 0.3) { push({ type: 'src', mode: ev.mode, a: ev.a, b: ev.b, speed: 1, frames: Math.round((ev.b - ev.a) * (ev.mode === 'slow' ? 2 : 1) * FPS) }); t = ev.b; }
+            else t = ev.a;
+          } else if (ev.mode === 'meme') {
+            const item = pickByKind(memes, ev.h.kind, usedM);
+            if (item) push({ type: 'meme', item, frames: Math.round(Math.min(Math.max(item.duration || 3, 1), 4) * FPS) });
+            t = ev.a;
+          } else if (ev.mode === 'sfx') {
+            const item = pickByKind(sfx, ev.h.kind, usedS);
+            if (item) fx.push({ src: ev.a, item });
+            t = ev.a;
+          }
+        }
+        if (t < seg.end - 0.05) srcPieces(t, seg.end, 'normal');
+      }
+      push({ type: 'outro', frames: Math.round(OUTRO_LEN * FPS) });
+      // place sound effects on the output timeline
+      for (const f of fx) { const o = aeMapTime(pieces, f.src); if (o !== null) f.out = o; }
+      return { pieces, fx: fx.filter(f => f.out !== undefined), totalFrames: frames };
+    }
+    // source time -> output time (null if it lands in a cut part; then the next kept part is used)
+    function aeMapTime(pieces, t) {
+      let next = null;
+      for (const p of pieces) {
+        if (p.type !== 'src') continue;
+        if (t >= p.a && t < p.b) {
+          const k = p.mode === 'speed' ? 1 / p.speed : p.mode === 'slow' ? 2 : 1;
+          return p.out + (t - p.a) * k;
+        }
+        if (p.a > t && next === null) next = p.out;
+      }
+      return next;
+    }
+
+    // ---- description with chapters ----
+    function aeFullDescription(plan) {
+      const { pieces, totalFrames } = aeBuildPieces(plan);
+      const total = totalFrames / FPS, outroAt = total - OUTRO_LEN;
+      let ch = plan.chapters.map(c => ({ t: aeMapTime(pieces, c.time), title: c.title })).filter(c => c.t !== null && c.t < outroAt - 10);
+      ch.sort((a, b) => a.t - b.t);
+      const clean = [];
+      for (const c of ch) if (!clean.length || c.t - clean[clean.length - 1].t >= 10) clean.push(c);
+      if (clean.length) clean[0].t = 0;                       // YouTube: first chapter must be 0:00
+      const parts = [plan.description.trim()];
+      if (clean.length >= 3) parts.push('⏱️ Chapters\n' + clean.map(c => `${fmtT(c.t)} ${c.title}`).join('\n'));
+      const ch_ = (brand.channel || '').trim();
+      parts.push(`👉 Subscribe${ch_ ? ' to ' + ch_ : ''} for new videos every day! Like and comment what you want to see next! 🎮`);
+      const hashtags = plan.tags.slice(0, 3).map(t => '#' + t.replace(/[^a-z0-9]/gi, '')).filter(t => t.length > 1);
+      if (hashtags.length) parts.push(hashtags.join(' '));
+      return parts.filter(Boolean).join('\n\n');
+    }
+
+    // ---- extend the review screen: title picker, description preview ----
+    const _aeRenderReviewBase = aeRenderReview;
+    aeRenderReview = function () {
+      _aeRenderReviewBase();
+      const plan = ae.plan;
+      if (!plan.titles) plan.titles = plan.title ? [plan.title] : [];
+      const box = $('aeTitleOpts'); box.innerHTML = '';
+      plan.titles.forEach(t => {
+        const b = document.createElement('button');
+        b.className = 'title-opt' + (t === plan.title ? ' on' : '');
+        b.textContent = t; const sm = document.createElement('small'); sm.textContent = `${t.length} chars`; b.appendChild(sm);
+        b.onclick = () => { plan.title = t; aeSave(); aeRenderReview(); };
+        box.appendChild(b);
+      });
+      $('aeTitle').value = plan.title;
+      $('aeFullDesc').value = aeFullDescription(plan);
+      $('aeRender').disabled = busy || !ae.plan;
+    };
+    window.aeRenderReview = aeRenderReview;
+    $('aeTitle').oninput = e => { ae.plan.title = e.target.value; aeSave(); };
+    $('aeDesc').oninput = e => { ae.plan.description = e.target.value; aeSave(); $('aeFullDesc').value = aeFullDescription(ae.plan); };
+    $('aeTags').onchange = e => { ae.plan.tags = e.target.value.split(',').map(t => t.trim()).filter(Boolean); aeSave(); $('aeFullDesc').value = aeFullDescription(ae.plan); };
+    $('aeCopyDesc').onclick = async () => {
+      try { await navigator.clipboard.writeText($('aeFullDesc').value); $('aeCopyDesc').textContent = '✅ Copied!'; }
+      catch { $('aeFullDesc').select(); document.execCommand('copy'); $('aeCopyDesc').textContent = '✅ Copied!'; }
+      setTimeout(() => $('aeCopyDesc').textContent = '📋 Copy description', 1500);
+    };
+    const _aeUpdateBase = window.aeUpdate;
+    window.aeUpdate = () => { _aeUpdateBase(); $('aeRender').disabled = busy || !ae.plan || !ae.file; };
+
+    // "More catchy title ideas": cheap text-only AI call
+    $('aeMoreTitles').onclick = async () => {
+      const plan = ae.plan; if (!plan) return;
+      const btn = $('aeMoreTitles'); btn.disabled = true; btn.textContent = '✨ Thinking...';
+      try {
+        const facts = plan.highlights.map(h => `${h.kind}: ${h.note}`).join('; ') || 'no highlight notes';
+        const kept = plan.segments.filter(x => x.action === 'keep').map(x => x.reason).filter(Boolean).slice(0, 15).join('; ');
+        const prompt = `Write 5 NEW catchy YouTube titles for a kid's gaming video${brand.channel ? ' on the channel "' + brand.channel + '"' : ''}.
+What happens in the video: ${kept}. Best moments: ${facts}. Current description: ${plan.description}
+Existing titles to avoid repeating: ${plan.titles.join(' | ')}
+
+${TITLE_RULES}`;
+        const text = await geminiRobust({ contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { responseMimeType: 'application/json', responseSchema: { type: 'ARRAY', items: { type: 'STRING' } }, temperature: 1.0 } },
+          t => btn.textContent = '✨ ' + t.slice(0, 40) + '...');
+        const more = JSON.parse(text).map(t => String(t).trim()).filter(Boolean);
+        plan.titles = [...new Set([...plan.titles, ...more])].slice(-8);
+        aeSave(); aeRenderReview();
+      } catch (e) { alert('Could not get new titles: ' + e.message); }
+      btn.disabled = false; btn.textContent = '✨ More catchy title ideas';
+    };
+
+    // ---- minimal MP4 reader (for our own ffmpeg pieces) ----
+    function parseMp4(u8) {
+      const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+      const str = (o) => String.fromCharCode(u8[o], u8[o + 1], u8[o + 2], u8[o + 3]);
+      function boxes(start, end) {
+        const out = [];
+        for (let o = start; o + 8 <= end;) {
+          let size = dv.getUint32(o), type = str(o + 4), hdr = 8;
+          if (size === 1) { size = Number(dv.getBigUint64(o + 8)); hdr = 16; } else if (size === 0) size = end - o;
+          out.push({ type, start: o, data: o + hdr, end: o + size });
+          o += size;
+        }
+        return out;
+      }
+      const find = (list, t) => list.find(b => b.type === t);
+      const moov = find(boxes(0, u8.length), 'moov');
+      if (!moov) throw new Error('piece has no moov');
+      const tracks = [];
+      for (const trak of boxes(moov.data, moov.end).filter(b => b.type === 'trak')) {
+        const mdia = find(boxes(trak.data, trak.end), 'mdia');
+        const mdiaKids = boxes(mdia.data, mdia.end);
+        const mdhd = find(mdiaKids, 'mdhd'), hdlr = find(mdiaKids, 'hdlr');
+        const ver = u8[mdhd.data];
+        const timescale = dv.getUint32(mdhd.data + (ver === 1 ? 20 : 12));
+        const handler = str(hdlr.data + 8);
+        const minf = find(mdiaKids, 'minf'), stbl = find(boxes(minf.data, minf.end), 'stbl');
+        const sk = boxes(stbl.data, stbl.end), g = t => find(sk, t);
+        const tr = { handler, timescale, samples: [] };
+        // sample description
+        const stsd = g('stsd'), entry = boxes(stsd.data + 8, stsd.end)[0];
+        tr.format = entry.type;
+        if (entry.type === 'avc1') {
+          tr.width = dv.getUint16(entry.data + 24); tr.height = dv.getUint16(entry.data + 26);
+          const avcC = find(boxes(entry.data + 78, entry.end), 'avcC');
+          tr.avcC = u8.slice(avcC.data, avcC.end);
+          const hx = n => n.toString(16).padStart(2, '0');
+          tr.codec = 'avc1.' + hx(tr.avcC[1]) + hx(tr.avcC[2]) + hx(tr.avcC[3]);
+        } else if (entry.type === 'mp4a') {
+          tr.channels = dv.getUint16(entry.data + 16); tr.sampleRate = dv.getUint32(entry.data + 24) >>> 16;
+          const esds = find(boxes(entry.data + 28, entry.end), 'esds');
+          // walk ES descriptors to the DecoderSpecificInfo (tag 5) = AudioSpecificConfig
+          let o = esds.data + 4;
+          const readLen = () => { let n = 0, b; do { b = u8[o++]; n = (n << 7) | (b & 0x7f); } while (b & 0x80); return n; };
+          while (o < esds.end) {
+            const tag = u8[o++], len = readLen();
+            if (tag === 3) { const flags = u8[o + 2]; o += 3; if (flags & 0x80) o += 2; if (flags & 0x40) o += 1 + u8[o]; if (flags & 0x20) o += 2; continue; }
+            if (tag === 4) { o += 13; continue; }
+            if (tag === 5) { tr.asc = u8.slice(o, o + len); break; }
+            o += len;
+          }
+        }
+        // sample table
+        const sizes = [], stsz = g('stsz'), fixed = dv.getUint32(stsz.data + 4), count = dv.getUint32(stsz.data + 8);
+        for (let i = 0; i < count; i++) sizes.push(fixed || dv.getUint32(stsz.data + 12 + i * 4));
+        const durs = [], stts = g('stts');
+        for (let i = 0, n = dv.getUint32(stts.data + 4); i < n; i++) {
+          const c = dv.getUint32(stts.data + 8 + i * 8), d = dv.getUint32(stts.data + 12 + i * 8);
+          for (let k = 0; k < c; k++) durs.push(d);
+        }
+        const stss = g('stss'), sync = stss ? new Set() : null;
+        if (stss) for (let i = 0, n = dv.getUint32(stss.data + 4); i < n; i++) sync.add(dv.getUint32(stss.data + 8 + i * 4) - 1);
+        const co = g('stco') || g('co64'), is64 = co.type === 'co64', chunkOffs = [];
+        for (let i = 0, n = dv.getUint32(co.data + 4); i < n; i++)
+          chunkOffs.push(is64 ? Number(dv.getBigUint64(co.data + 8 + i * 8)) : dv.getUint32(co.data + 8 + i * 4));
+        const stsc = g('stsc'), runs = [];
+        for (let i = 0, n = dv.getUint32(stsc.data + 4); i < n; i++)
+          runs.push([dv.getUint32(stsc.data + 8 + i * 12) - 1, dv.getUint32(stsc.data + 12 + i * 12)]);
+        let si = 0;
+        for (let c = 0; c < chunkOffs.length; c++) {
+          let per = 0; for (const [first, spc] of runs) if (c >= first) per = spc;
+          let off = chunkOffs[c];
+          for (let k = 0; k < per && si < count; k++, si++) {
+            tr.samples.push({ offset: off, size: sizes[si], dur: durs[si] || durs[durs.length - 1] || 1, sync: sync ? sync.has(si) : true });
+            off += sizes[si];
+          }
+        }
+        tracks.push(tr);
+      }
+      return { tracks, video: tracks.find(t => t.handler === 'vide'), audio: tracks.find(t => t.handler === 'soun') };
+    }
+
+    // ---- collects muxer output as disk-backed Blob parts (no 2 GB limit) ----
+    function blobSink() {
+      const HEAD = 1 << 20;                 // first 1 MB kept in memory so the muxer can patch the header
+      const head = new Uint8Array(HEAD); let headLen = 0;
+      const parts = []; let tailPos = HEAD;
+      return {
+        onData(data, pos) {
+          let d = data, p = pos;
+          if (p < HEAD) {
+            const n = Math.min(d.length, HEAD - p);
+            head.set(d.subarray(0, n), p); headLen = Math.max(headLen, p + n);
+            d = d.subarray(n); p += n;
+          }
+          if (d.length) {
+            if (p !== tailPos) throw new Error(`unexpected write at ${p}, expected ${tailPos}`);
+            parts.push(new Blob([d.slice()])); tailPos += d.length;
+          }
+        },
+        blob() { return new Blob([head.subarray(0, parts.length ? HEAD : headLen), ...parts], { type: 'video/mp4' }); },
+      };
+    }
+
+    // ---- the render ----
+    async function aeWriteItem(item, name) {
+      const ext = (item.fileName.match(/\.[^.]+$/) || ['.bin'])[0].toLowerCase();
+      const path = `/aew/${name}${ext}`;
+      await ffmpeg.writeFile(path, new Uint8Array(await item.blob.arrayBuffer()));
+      return path;
+    }
+    async function aeRun(args) {
+      const lines = await aeExec(args);
+      if (lines.code !== 0) {
+        console.error(lines.slice(-30).join('\n'));
+        throw new Error('ffmpeg failed: ' + (lines.filter(l => /error|invalid|fail|no such|cannot|unable/i.test(l)).slice(-3).join(' | ') || 'exit code ' + lines.code));
+      }
+      return lines;
+    }
+    async function readAndDelete(path) { const d = await ffmpeg.readFile(path); await ffmpeg.deleteFile(path); return d; }
+
+    async function aeRenderAll() {
+      const [W, H] = $('aeRes').value.split(':').map(Number);
+      const lib = await libAll();
+      const { pieces, fx, totalFrames } = aeBuildPieces(ae.plan, lib);
+      const total = totalFrames / FPS;
+      const base = `scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,${VTAIL},tpad=stop_mode=clone:stop_duration=3`;
+      const step = aeStepper();
+      const src = await aeMount();
+      const wake = await navigator.wakeLock?.request('screen').catch(() => null);
+      const t0 = performance.now();
+      try {
+        // 1) intro, outro and meme pieces (they carry their own audio)
+        let st = step('Making intro & outro...');
+        const intro = await readBlob(await makeIntro(W, H, { venc: VENC, frames: pieces[0].frames }));
+        const outro = await readBlob(await makeOutro(W, H, { venc: VENC, frames: pieces[pieces.length - 1].frames }));
+        pieces[0].data = intro; pieces[pieces.length - 1].data = outro;
+        let mi = 0;
+        for (const p of pieces.filter(p => p.type === 'meme')) {
+          const path = await aeWriteItem(p.item, 'meme_src');
+          await aeRun(['-i', path, '-vf', `fps=${FPS},${base}`, '-frames:v', String(p.frames), ...VENC,
+            '-map', '0:v:0', '-map', '0:a:0?', '-c:a', 'aac', '-b:a', '160k', '-ar', '48000', '-ac', '2', '/aew/meme.mp4']);
+          p.data = await readAndDelete('/aew/meme.mp4'); await ffmpeg.deleteFile(path); mi++;
+        }
+        st.done(`Intro, outro${mi ? ` and ${mi} meme clip${mi > 1 ? 's' : ''}` : ''} ready`);
+
+        // 2) one continuous audio track for the whole video
+        st = step('Building the audio track...');
+        await aeBuildAudio(src, pieces, fx, lib, total, st);
+        const audioU8 = await readAndDelete('/aew/audio.m4a');
+        const audioTrack = parseMp4(audioU8).audio;
+        if (!audioTrack) throw new Error('audio track missing');
+        st.done(`Audio track ready (${fmtLen(total)})`);
+
+        // 3) video pieces -> muxed straight into the final MP4
+        const sink = blobSink();
+        const muxer = new Mp4Muxer.Muxer({
+          target: new Mp4Muxer.StreamTarget({ onData: sink.onData, chunked: true, chunkSize: 8 * 1024 * 1024 }),
+          video: { codec: 'avc', width: W, height: H, frameRate: FPS },
+          audio: { codec: 'aac', numberOfChannels: 2, sampleRate: 48000 },
+          fastStart: false, firstTimestampBehavior: 'offset',
+        });
+        let aIdx = 0, aTime = 0, frameNo = 0, vMetaSent = false, aMetaSent = false, firstAvcC = null;
+        const addAudioUntil = (us) => {
+          while (aIdx < audioTrack.samples.length) {
+            const s = audioTrack.samples[aIdx];
+            const ts = Math.round(aTime * 1e6 / audioTrack.timescale);
+            if (ts >= us) break;
+            const dur = Math.round(s.dur * 1e6 / audioTrack.timescale);
+            muxer.addAudioChunkRaw(audioU8.subarray(s.offset, s.offset + s.size), 'key', ts, dur,
+              aMetaSent ? undefined : { decoderConfig: { codec: 'mp4a.40.2', numberOfChannels: 2, sampleRate: 48000, description: audioTrack.asc } });
+            aMetaSent = true; aTime += s.dur; aIdx++;
+          }
+        };
+        st = step('Rendering video...');
+        for (let i = 0; i < pieces.length; i++) {
+          const p = pieces[i];
+          let data = p.data;
+          if (!data) {
+            const vf = p.mode === 'speed' ? `setpts=PTS/${p.speed},fps=${FPS},${base}`
+                     : p.mode === 'slow' ? `setpts=2*PTS,fps=${FPS},${base}`
+                     : p.mode === 'zoom' ? `fps=${FPS},crop=iw/1.25:ih/1.25,${base}`
+                     : `fps=${FPS},${base}`;
+            progressLen = p.frames / FPS;
+            onProgress = q => {
+              const done = (frameNo + q * p.frames) / totalFrames, el = (performance.now() - t0) / 1000;
+              const eta = done > 0.02 ? el / done - el : 0;
+              const msg = `Rendering video... ${(done * 100).toFixed(1)}% · piece ${i + 1}/${pieces.length}${eta ? ` · ~${fmtLen(eta)} left` : ''}`;
+              st.update(msg); aeStatus('⚙️ ' + msg);
+            };
+            await aeRun(['-ss', p.a.toFixed(3), '-t', (p.b - p.a + 0.1).toFixed(3), '-i', src, '-an', '-vf', vf,
+              '-frames:v', String(p.frames), ...VENC, '/aew/piece.mp4']);
+            onProgress = null;
+            data = await readAndDelete('/aew/piece.mp4');
+          }
+          const mp = parseMp4(data), vt = mp.video;
+          if (!vt) throw new Error(`piece ${i + 1} has no video`);
+          if (!firstAvcC) firstAvcC = vt.avcC;
+          else if (vt.avcC.length !== firstAvcC.length || vt.avcC.some((b, k) => b !== firstAvcC[k])) console.warn('avcC differs on piece', i + 1);
+          // Place frames on the planned timeline. If a piece came out a frame or two short, its last frame is
+          // simply shown a little longer, so every following piece still starts exactly on time (no audio drift).
+          const n = Math.min(vt.samples.length, p.frames), startF = frameNo, endF = startF + p.frames;
+          if (vt.samples.length !== p.frames) console.info(`piece ${i + 1}: ${vt.samples.length} frames, planned ${p.frames}`);
+          for (let k = 0; k < n; k++) {
+            const s = vt.samples[k];
+            const ts = Math.round((startF + k) * 1e6 / FPS);
+            const nextF = k === n - 1 ? endF : startF + k + 1;
+            const dur = Math.round(nextF * 1e6 / FPS) - ts;
+            muxer.addVideoChunkRaw(data.subarray(s.offset, s.offset + s.size), s.sync ? 'key' : 'delta', ts, dur,
+              vMetaSent ? undefined : { decoderConfig: { codec: vt.codec, codedWidth: W, codedHeight: H, description: vt.avcC } });
+            vMetaSent = true;
+          }
+          frameNo = endF;
+          addAudioUntil(Math.round(frameNo * 1e6 / FPS));
+          p.data = null;
+        }
+        addAudioUntil(Infinity);
+        muxer.finalize();
+        const out = sink.blob();
+        st.done(`Video rendered: ${fmtLen(frameNo / FPS)} · ${(out.size / 1024 / 1024).toFixed(0)} MB`);
+        return { blob: out, seconds: frameNo / FPS, minutes: (performance.now() - t0) / 60000 };
+      } finally {
+        onProgress = null;
+        wake?.release?.().catch(() => {});
+      }
+    }
+    async function readBlob(b) { return new Uint8Array(await b.arrayBuffer()); }
+
+    // audio: source audio (music muted/lowered) cut exactly like the video, plus intro/outro/meme audio and sound effects
+    async function aeBuildAudio(src, pieces, fx, lib, total, st) {
+      const inputs = ['-i', src]; let n = 1;
+      const fmt = 'aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo';
+      const addInput = (path, extra = []) => { inputs.push(...extra, '-i', path); return n++; };
+      const filters = [];
+      // music warnings act on source time, before cutting
+      const vol = ae.plan.music.filter(m => m.action !== 'keep')
+        .map(m => `volume=enable='between(t\\,${m.start.toFixed(2)}\\,${m.end.toFixed(2)})':volume=${m.action === 'mute' ? 0 : 0.25}`);
+      const srcPieces = pieces.filter(p => p.type === 'src' && p.mode !== 'speed');
+      if (srcPieces.length) filters.push(`[0:a]${fmt}${vol.length ? ',' + vol.join(',') : ''},asplit=${srcPieces.length}${srcPieces.map((_, i) => `[s${i}]`).join('')}`);
+      const tlMusic = lib.find(i => i.type === 'music' && i.tags.includes('timelapse'));
+      const speedPieces = pieces.filter(p => p.type === 'src' && p.mode === 'speed');
+      let tlIn = null;
+      if (tlMusic && speedPieces.length) {
+        tlIn = addInput(await aeWriteItem(tlMusic, 'tl_music'), ['-stream_loop', '-1']);
+        filters.push(`[${tlIn}:a]${fmt},volume=0.6,asplit=${speedPieces.length}${speedPieces.map((_, i) => `[m${i}]`).join('')}`);
+      }
+      let si = 0, mi = 0, labels = [];
+      for (let i = 0; i < pieces.length; i++) {
+        const p = pieces[i], D = (p.frames / FPS).toFixed(4), L = `[p${i}]`;
+        if (p.type === 'intro' || p.type === 'outro' || p.type === 'meme') {
+          const path = `/aew/${p.type}_${i}.mp4`;
+          const mp = parseMp4(p.data);
+          if (mp.audio) {
+            await ffmpeg.writeFile(path, p.data.slice());   // copy: the engine takes ownership of what it is given
+            const k = addInput(path);
+            filters.push(`[${k}:a]${fmt},apad,atrim=0:${D},asetpts=PTS-STARTPTS${L}`);
+          } else filters.push(`aevalsrc=0|0:s=48000:d=${D},aformat=sample_fmts=fltp:channel_layouts=stereo${L}`);
+        } else if (p.mode === 'speed') {
+          if (tlIn !== null) filters.push(`[m${mi++}]atrim=0:${D},asetpts=PTS-STARTPTS,afade=t=in:d=0.3,afade=t=out:st=${Math.max(0, D - 0.3).toFixed(3)}:d=0.3${L}`);
+          else filters.push(`aevalsrc=0|0:s=48000:d=${D},aformat=sample_fmts=fltp:channel_layouts=stereo${L}`);
+        } else {
+          const tempo = p.mode === 'slow' ? ',atempo=0.5' : '';
+          filters.push(`[s${si++}]atrim=start=${p.a.toFixed(3)}:end=${p.b.toFixed(3)},asetpts=PTS-STARTPTS${tempo},apad,atrim=0:${D},asetpts=PTS-STARTPTS${L}`);
+        }
+        labels.push(L);
+      }
+      filters.push(`${labels.join('')}concat=n=${labels.length}:v=0:a=1[main]`);
+      const fxL = [];
+      for (let j = 0; j < fx.length; j++) {
+        const k = addInput(await aeWriteItem(fx[j].item, 'fx' + j));
+        const ms = Math.round(fx[j].out * 1000);
+        filters.push(`[${k}:a]${fmt},atrim=0:3,volume=0.9,adelay=${ms}|${ms}[f${j}]`);
+        fxL.push(`[f${j}]`);
+      }
+      filters.push(fxL.length ? `[main]${fxL.join('')}amix=inputs=${fxL.length + 1}:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95[out]`
+                              : `[main]alimiter=limit=0.95[out]`);
+      progressLen = total;
+      onProgress = q => st.update(`Building the audio track... ${(q * 100).toFixed(0)}%`);
+      await aeRun([...inputs, '-filter_complex', filters.join(';'), '-map', '[out]', '-t', total.toFixed(3),
+        '-c:a', 'aac', '-b:a', '160k', '-ar', '48000', '-ac', '2', '/aew/audio.m4a']);
+      onProgress = null;
+      for (const f of await ffmpeg.listDir('/aew')) if (/^(intro|outro|meme|fx|tl_music)/.test(f.name)) await ffmpeg.deleteFile('/aew/' + f.name).catch(() => {});
+    }
+
+
+    // =====================================================================
+    // 🖼️ THUMBNAILS (3 options, 1280×720 JPG)
+    // =====================================================================
+    const HL_TEXT = { funny: 'NO WAY!', fail: 'EPIC FAIL!', win: 'I WON!', shocked: 'WHAT?!', hype: "LET'S GO!", rage: 'SO ANGRY!', scary: 'RUN!!', sad: 'NOOO!' };
+    let aeThumbBlobs = [], aeThumbPick = 0, aeThumbVariant = 0;
+
+    let antonLoaded = false;
+    async function ensureCanvasFont() {
+      // note: document.fonts.check() says "true" for fonts it has never heard of, so track loading ourselves
+      if (antonLoaded) return;
+      const f = new FontFace('Anton', 'url(https://raw.githubusercontent.com/google/fonts/main/ofl/anton/Anton-Regular.ttf)');
+      document.fonts.add(await f.load());
+      await document.fonts.load('80px Anton');
+      antonLoaded = true;
+    }
+    function thumbIdeas(plan, variant) {
+      const { pieces } = aeBuildPieces(plan);
+      const kept = t => aeMapTime(pieces, t) !== null && pieces.some(p => p.type === 'src' && t >= p.a && t < p.b);
+      const ideas = [];
+      for (const t of plan.thumbs || []) if (kept(t.time)) ideas.push({ time: t.time, text: t.text });
+      for (const h of plan.highlights.filter(h => h.on)) if (kept(h.time)) ideas.push({ time: h.time, text: HL_TEXT[h.kind] || 'NO WAY!' });
+      const best = plan.segments.filter(x => x.action === 'keep').sort((a, b) => b.score - a.score);
+      for (const x of best) ideas.push({ time: (x.start + x.end) / 2, text: (plan.title.match(/[A-Z]{3,}[!?]*/) || ['WATCH THIS!'])[0] });
+      // variants rotate through ideas and nudge the frame time so "make different" really is different
+      const out = [];
+      for (let i = 0; out.length < 3 && i < ideas.length + 3; i++) {
+        const idea = ideas[(i + variant * 3) % Math.max(1, ideas.length)];
+        if (!idea) break;
+        const t = idea.time + (variant ? (variant % 2 ? 1.2 : -1.2) * variant : 0);
+        const time = kept(t) ? t : idea.time;
+        if (!out.some(o => Math.abs(o.time - time) < 2)) out.push({ time, text: idea.text.toUpperCase() });
+      }
+      while (out.length < 3) out.push({ ...out[out.length - 1] || { time: ae.dur / 2, text: 'WATCH THIS!' } });
+      return out;
+    }
+    async function grabFrame(src, t) {
+      await aeRun(['-ss', Math.max(0, t).toFixed(2), '-i', src, '-frames:v', '1',
+        '-vf', 'scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720', '-q:v', '2', '/aew/th.jpg']);
+      const d = await readAndDelete('/aew/th.jpg');
+      return createImageBitmap(new Blob([d.buffer], { type: 'image/jpeg' }));
+    }
+    async function loadFaces() {
+      const lib = await libAll();
+      const faces = [];
+      for (const it of lib.filter(i => i.type === 'image' && (i.tags.includes('face') || i.tags.includes('thumbnail')))) {
+        const bmp = await createImageBitmap(it.blob);
+        // transparent PNG cut-out? check the corners
+        const c = new OffscreenCanvas(32, 32), x = c.getContext('2d');
+        x.drawImage(bmp, 0, 0, 32, 32);
+        const px = [[0, 0], [31, 0], [0, 31], [31, 31]].map(([a, b]) => x.getImageData(a, b, 1, 1).data[3]);
+        faces.push({ bmp, cutout: px.some(a => a < 200) });
+      }
+      const logoItem = lib.find(i => i.id === brand.outroImg);
+      const logo = logoItem ? await createImageBitmap(logoItem.blob) : null;
+      return { faces, logo };
+    }
+    function cover(ctx, img, x, y, w, h, zoom = 1) {
+      const s = Math.max(w / img.width, h / img.height) * zoom, iw = img.width * s, ih = img.height * s;
+      ctx.drawImage(img, x + (w - iw) / 2, y + (h - ih) / 2, iw, ih);
+    }
+    function bigText(ctx, text, cx, cy, maxW, maxH, { fill = '#FFE500', stroke = '#000', rotate = 0, align = 'center' } = {}) {
+      const words = text.split(/\s+/);
+      let size = 260, lines;
+      for (; size > 40; size -= 6) {
+        ctx.font = `${size}px Anton`;
+        lines = [];
+        if (words.length > 1 && ctx.measureText(text).width > maxW) {
+          let best = null;
+          for (let k = 1; k < words.length; k++) {
+            const l = [words.slice(0, k).join(' '), words.slice(k).join(' ')];
+            const w = Math.max(...l.map(t => ctx.measureText(t).width));
+            if (!best || w < best.w) best = { l, w };
+          }
+          lines = best.l;
+        } else lines = [text];
+        const w = Math.max(...lines.map(t => ctx.measureText(t).width));
+        if (w <= maxW && lines.length * size * 1.02 <= maxH) break;
+      }
+      ctx.save();
+      ctx.translate(cx, cy); ctx.rotate(rotate * Math.PI / 180);
+      ctx.textAlign = align; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+      const lh = size * 1.0, top = -(lines.length - 1) * lh / 2;
+      lines.forEach((t, i) => {
+        const y = top + i * lh;
+        ctx.lineWidth = size * 0.16; ctx.strokeStyle = stroke; ctx.strokeText(t, 0, y);
+        ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 20; ctx.shadowOffsetY = 8;
+        ctx.fillStyle = fill; ctx.fillText(t, 0, y);
+        ctx.shadowColor = 'transparent';
+      });
+      ctx.restore();
+    }
+    function drawFace(ctx, face, x, y, h, ring = '#3b82f6') {
+      if (face.cutout) {
+        const w = face.bmp.width * h / face.bmp.height;
+        ctx.save();
+        ctx.filter = 'drop-shadow(7px 0 0 #fff) drop-shadow(-7px 0 0 #fff) drop-shadow(0 7px 0 #fff) drop-shadow(0 -7px 0 #fff) drop-shadow(0 0 24px rgba(0,0,0,0.8))';
+        ctx.drawImage(face.bmp, x - w / 2, y - h, w, h);
+        ctx.restore();
+      } else {
+        const r = h / 2, cx = x, cy = y - r;
+        ctx.save();
+        ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.closePath();
+        ctx.shadowColor = 'rgba(0,0,0,0.7)'; ctx.shadowBlur = 30; ctx.fillStyle = '#000'; ctx.fill(); ctx.shadowColor = 'transparent';
+        ctx.clip(); cover(ctx, face.bmp, cx - r, cy - r, r * 2, r * 2); ctx.restore();
+        ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.lineWidth = 14; ctx.strokeStyle = ring; ctx.stroke();
+        ctx.lineWidth = 5; ctx.strokeStyle = '#fff'; ctx.stroke();
+      }
+    }
+    function drawLogo(ctx, logo, x, y, size) {
+      if (!logo) return;
+      ctx.save(); ctx.beginPath(); ctx.arc(x + size / 2, y + size / 2, size / 2 - 2, 0, Math.PI * 2); ctx.clip();
+      cover(ctx, logo, x, y, size, size); ctx.restore();
+    }
+    function arrow(ctx, x1, y1, x2, y2, color = '#ef4444') {
+      const a = Math.atan2(y2 - y1, x2 - x1), L = Math.hypot(x2 - x1, y2 - y1);
+      ctx.save(); ctx.translate(x1, y1); ctx.rotate(a);
+      ctx.beginPath(); ctx.moveTo(0, -16); ctx.lineTo(L - 60, -16); ctx.lineTo(L - 60, -46); ctx.lineTo(L, 0);
+      ctx.lineTo(L - 60, 46); ctx.lineTo(L - 60, 16); ctx.lineTo(0, 16); ctx.closePath();
+      ctx.lineWidth = 10; ctx.strokeStyle = '#fff'; ctx.lineJoin = 'round'; ctx.stroke();
+      ctx.fillStyle = color; ctx.fill(); ctx.restore();
+    }
+    function renderThumb(layout, frame, text, face, logo) {
+      const c = document.createElement('canvas'); c.width = 1280; c.height = 720;
+      const ctx = c.getContext('2d');
+      ctx.filter = 'saturate(1.45) contrast(1.15) brightness(1.05)';
+      cover(ctx, frame, 0, 0, 1280, 720, layout === 2 ? 1.35 : layout === 1 ? 1.12 : 1);
+      ctx.filter = 'none';
+      const vig = ctx.createRadialGradient(640, 360, 250, 640, 360, 820);
+      vig.addColorStop(0, 'rgba(0,0,0,0)'); vig.addColorStop(1, 'rgba(0,0,0,0.55)');
+      ctx.fillStyle = vig; ctx.fillRect(0, 0, 1280, 720);
+      if (layout === 0) {          // text left, face right
+        const g = ctx.createLinearGradient(0, 0, 760, 0);
+        g.addColorStop(0, 'rgba(0,0,0,0.7)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g; ctx.fillRect(0, 0, 760, 720);
+        bigText(ctx, text, face ? 380 : 640, 330, face ? 660 : 1150, 520, { rotate: -4 });
+        if (face) drawFace(ctx, face, 1010, 720, face.cutout ? 690 : 500);
+        drawLogo(ctx, logo, 24, 590, 110);
+      } else if (layout === 1) {   // big text bottom, face left, arrow to the action
+        const g = ctx.createLinearGradient(0, 380, 0, 720);
+        g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,0.8)');
+        ctx.fillStyle = g; ctx.fillRect(0, 380, 1280, 340);
+        if (face) drawFace(ctx, face, 250, face.cutout ? 720 : 560, face.cutout ? 620 : 420, '#ef4444');
+        arrow(ctx, face ? 470 : 300, 300, face ? 820 : 760, 210);
+        bigText(ctx, text, face ? 820 : 640, 590, face ? 860 : 1180, 230, { fill: '#fff', stroke: '#000', rotate: -2 });
+      } else {                     // zoomed action, red circle, text top
+        ctx.beginPath(); ctx.arc(640, 400, 190, 0, Math.PI * 2);
+        ctx.lineWidth = 22; ctx.strokeStyle = '#fff'; ctx.stroke(); ctx.lineWidth = 12; ctx.strokeStyle = '#ef4444'; ctx.stroke();
+        const g = ctx.createLinearGradient(0, 0, 0, 260);
+        g.addColorStop(0, 'rgba(0,0,0,0.75)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g; ctx.fillRect(0, 0, 1280, 260);
+        bigText(ctx, text, 640, 120, 1150, 210, { fill: '#FFE500', rotate: 0 });
+        if (face) drawFace(ctx, face, 1110, 720, face.cutout ? 420 : 300);
+        drawLogo(ctx, logo, 24, 590, 110);
+      }
+      return c;
+    }
+    async function canvasToJpeg(c) {
+      for (let q = 0.92; q >= 0.5; q -= 0.08) {
+        const b = await new Promise(ok => c.toBlob(ok, 'image/jpeg', q));
+        if (b.size < 2 * 1024 * 1024) return b;        // YouTube thumbnail limit is 2 MB
+      }
+      return new Promise(ok => c.toBlob(ok, 'image/jpeg', 0.5));
+    }
+    async function aeMakeThumbs(variant = 0) {
+      await ensureCanvasFont();
+      const src = await aeMount();
+      const ideas = thumbIdeas(ae.plan, variant);
+      const { faces, logo } = await loadFaces();
+      aeThumbBlobs = [];
+      for (let i = 0; i < 3; i++) {
+        const frame = await grabFrame(src, ideas[i].time);
+        const face = faces.length ? faces[(i + variant) % faces.length] : null;
+        const c = renderThumb((i + variant) % 3, frame, ideas[i].text, face, logo);
+        aeThumbBlobs.push(await canvasToJpeg(c));
+      }
+      aeThumbPick = 0;
+      aeShowThumbs();
+      return faces.length;
+    }
+    function aeShowThumbs() {
+      const box = $('aeThumbs'); box.innerHTML = '';
+      const base = slug(ae.plan.title || 'video');
+      aeThumbBlobs.forEach((b, i) => {
+        const url = URL.createObjectURL(b);
+        const card = document.createElement('div');
+        card.className = 'thumb' + (i === aeThumbPick ? ' on' : '');
+        card.innerHTML = `<img src="${url}"><div class="row"><button>${i === aeThumbPick ? '✅ Selected' : 'Use this one'}</button>
+          <a href="${url}" download="${base}-thumbnail-${i + 1}.jpg">⬇ Download</a></div>
+          <span class="hint">${(b.size / 1024).toFixed(0)} KB · 1280×720</span>`;
+        card.querySelector('button').onclick = () => { aeThumbPick = i; aeShowThumbs(); };
+        box.appendChild(card);
+      });
+    }
+    $('aeThumbRedo').onclick = async () => {
+      if (busy) return;
+      busy = true; updateGo(); $('aeThumbRedo').disabled = true; $('aeThumbStatus').textContent = '⚙️ Making new thumbnails...';
+      try { aeThumbVariant++; await aeMakeThumbs(aeThumbVariant); $('aeThumbStatus').textContent = ''; }
+      catch (e) { console.error(e); $('aeThumbStatus').textContent = '❌ ' + e.message; }
+      busy = false; updateGo(); $('aeThumbRedo').disabled = false;
+    };
+
+    // ---- the big button ----
+    $('aeRender').addEventListener('click', async () => {
+      if (!ae.plan || busy) return;
+      busy = true; updateGo(); $('engine').textContent = '⚙️ Rendering video...';
+      $('aeSteps').innerHTML = ''; $('aeOut').style.display = 'none';
+      const step = aeStepper();
+      try {
+        const r = await aeRenderAll();
+        const url = URL.createObjectURL(r.blob);
+        const v = $('aeOutVid'); if (v.src) URL.revokeObjectURL(v.src); v.src = url;
+        const name = `${slug(ae.plan.title || ae.file.name)}.mp4`;
+        $('aeOutDl').href = url; $('aeOutDl').download = name;
+        $('aeOutInfo').textContent = `${name} · ${fmtLen(r.seconds)} · ${(r.blob.size / 1024 / 1024).toFixed(0)} MB · ${$('aeRes').value.replace(':', '×')}`;
+        $('aeOut').style.display = 'block';
+        const st = step('Making 3 thumbnails...');
+        const nFaces = await aeMakeThumbs(aeThumbVariant = 0);
+        st.done('3 thumbnails ready' + (nFaces ? '' : ' (tip: tag photos of your son "face" in the Library to put him on them)'));
+        aeStatus(`✅ Done in ${r.minutes.toFixed(1)} min! Download the video and pick a thumbnail below.`);
+        $('aeOut').scrollIntoView({ behavior: 'smooth' });
+      } catch (e) {
+        console.error(e);
+        aeStatus('❌ ' + (e?.message || e));
+        step(e?.message || String(e), 'fail');
+      }
       busy = false; updateGo(); $('engine').textContent = '✅ Engine ready';
     });
   </script>
