@@ -437,19 +437,28 @@
       fillModels(list, model);
     }
 
-    // Try the chosen model with retries; follow Google's suggested replacement for retired models;
-    // fall back to other Flash models; finally re-discover what the key can use now.
+    // Try the chosen model; if it is busy, IMMEDIATELY try the other models (newest first).
+    // Only when every model is busy do we wait and retry. Retired models follow Google's suggested replacement.
     async function geminiRobust(body, onInfo) {
       const chosen = $('model').value || LS.get('geminiModel');
-      if (!chosen) throw new Error('Click "Test key" first to pick a model.');
+      if (!chosen) throw new Error('Click "Test key" in Settings first to pick a model.');
       let saved = [];
       try { saved = JSON.parse(LS.get('geminiModels') || '[]'); } catch {}
-      const queue = [chosen, ...saved.filter(m => m !== chosen)].slice(0, 5);
-      const tried = new Set();
+      const others = saved.filter(m => m !== chosen).sort((x, y) => rank(x) - rank(y) || ver(y) - ver(x));
+      const queue = [chosen, ...others].slice(0, 6);
+      const tried = new Set(), busyList = [];
       let lastErr, rediscovered = false;
 
+      const attempt = async (model) => {
+        onInfo(`AI (${model}) is working on it (can take 30–90s)...`);
+        const text = await geminiCall(model, body);
+        saveWorkingModel(model);
+        return text;
+      };
+
+      // pass 1: every model once, no waiting
       while (true) {
-        const model = queue.shift();
+        let model = queue.shift();
         if (!model) {
           if (rediscovered) break;
           rediscovered = true;
@@ -461,27 +470,27 @@
         }
         if (tried.has(model)) continue;
         tried.add(model);
-
-        for (const wait of [0, 5, 15, 30]) {
-          if (wait) for (let s = wait; s > 0; s--) { onInfo(`${model} is busy, retrying in ${s}s...`); await sleep(1000); }
-          try {
-            onInfo(`AI (${model}) is watching and picking the best moments (can take 30–90s)...`);
-            const text = await geminiCall(model, body);
-            saveWorkingModel(model);
-            return text;
-          } catch (e) {
-            lastErr = e;
-            console.warn(model, e.message);
-            if (isRetired(e)) {
-              const sug = suggestedModel(e, model);
-              if (sug && !tried.has(sug)) { onInfo(`${model} was retired by Google, switching to ${sug}...`); queue.unshift(sug); }
-              break;
-            }
-            if (isNoQuota(e) || !isBusy(e)) break;
+        try { return await attempt(model); }
+        catch (e) {
+          lastErr = e; console.warn(model, e.message);
+          if (isRetired(e)) {
+            const sug = suggestedModel(e, model);
+            if (sug && !tried.has(sug)) { onInfo(`${model} was retired by Google, switching to ${sug}...`); queue.unshift(sug); }
+          } else if (isBusy(e) && !isNoQuota(e)) {
+            busyList.push(model);
+            onInfo(`${model} is busy, trying another model...`);
           }
         }
       }
-      throw lastErr;
+      // pass 2: everything was busy -> wait and retry the busy ones
+      for (const wait of [10, 30]) {
+        for (const model of busyList) {
+          for (let s = wait; s > 0; s--) { onInfo(`All models are busy. Retrying ${model} in ${s}s...`); await sleep(1000); }
+          try { return await attempt(model); }
+          catch (e) { lastErr = e; console.warn(model, e.message); }
+        }
+      }
+      throw lastErr || new Error('No Gemini model is available right now. Try again in a few minutes.');
     }
 
     $('testKey').addEventListener('click', async () => {
