@@ -70,7 +70,8 @@
     .thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; margin: 8px 0; }
     .thumb { background: #151515; border: 2px solid #333; border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
     .thumb.on { border-color: #22c55e; }
-    .thumb img { width: 100%; aspect-ratio: 16/9; object-fit: cover; border-radius: 4px; }
+    .thumb img { width: 100%; aspect-ratio: 16/9; object-fit: cover; border-radius: 4px; cursor: zoom-in; }
+    .thumbs { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
     .thumb .row { margin: 0; justify-content: space-between; }
     .title-opts { display: flex; flex-direction: column; gap: 6px; }
     .title-opt { text-align: left; background: #151515; color: #eee; border: 1px solid #333; border-radius: 6px; padding: 10px; font-size: 0.95rem; }
@@ -165,6 +166,7 @@
         <div class="row">
           <button id="aeAnalyze" class="big" disabled>🔍 Analyze video</button>
           <button id="aeRender" class="big" disabled>🎬 Render final video + 3 thumbnails</button>
+          <button id="aeThumbOnly" class="big" disabled style="background:#7c3aed">🖼️ Make 3 thumbnails only</button>
         </div>
         <div id="aeStatus" class="status"></div>
         <div id="aeSteps" class="steps"></div>
@@ -197,6 +199,7 @@
         <label class="field">Title (what will be used) <input type="text" id="aeTitle" maxlength="100"></label>
         <label class="field">Description hook <span class="hint">(chapters, subscribe line and hashtags are added below automatically)</span><textarea id="aeDesc" rows="3"></textarea></label>
         <label class="field">Tags <input type="text" id="aeTags"></label>
+        <label class="field">Game name <span class="hint">(shown as a badge on thumbnails; detected automatically)</span><input type="text" id="aeGame" maxlength="40"></label>
         <label class="field">Full description preview (copy this into YouTube)
           <textarea id="aeFullDesc" rows="12" readonly></textarea>
         </label>
@@ -210,7 +213,10 @@
           <a id="aeOutDl" class="upload-btn" download>⬇ Download video (MP4)</a>
           <span id="aeOutInfo" class="hint"></span>
         </div>
-        <h3>🖼️ Pick a thumbnail <span class="hint">(1280×720 JPG, YouTube size)</span></h3>
+      </div>
+
+      <div id="aeThumbBox" class="box" style="display:none">
+        <b>🖼️ Pick a thumbnail</b> <span class="hint">(1280×720 JPG, YouTube size · your son's real photo, never AI-changed)</span>
         <div id="aeThumbs" class="thumbs"></div>
         <div class="row"><button id="aeThumbRedo">🔄 Make 3 different thumbnails</button><span id="aeThumbStatus" class="hint"></span></div>
       </div>
@@ -2071,9 +2077,9 @@ ${TITLE_RULES}`;
     }
     async function grabFrame(src, t) {
       await aeRun(['-ss', Math.max(0, t).toFixed(2), '-i', src, '-frames:v', '1',
-        '-vf', 'scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720', '-q:v', '2', '/aew/th.jpg']);
-      const d = await readAndDelete('/aew/th.jpg');
-      return createImageBitmap(new Blob([d.buffer], { type: 'image/jpeg' }));
+        '-vf', 'scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720', '-c:v', 'png', '/aew/th.png']);
+      const d = await readAndDelete('/aew/th.png');
+      return createImageBitmap(new Blob([d.buffer], { type: 'image/png' }));
     }
     async function loadFaces() {
       const lib = await libAll();
@@ -2251,6 +2257,7 @@ ${TITLE_RULES}`;
         $('aeOut').style.display = 'block';
         const st = step('Making 3 thumbnails...');
         const nFaces = await aeMakeThumbs(aeThumbVariant = 0);
+        $('aeThumbBox').scrollIntoView({ behavior: 'smooth' });
         st.done('3 thumbnails ready' + (nFaces ? '' : ' (tip: tag photos of your son "face" in the Library to put him on them)'));
         aeStatus(`✅ Done in ${r.minutes.toFixed(1)} min! Download the video and pick a thumbnail below.`);
         $('aeOut').scrollIntoView({ behavior: 'smooth' });
@@ -2261,6 +2268,403 @@ ${TITLE_RULES}`;
       }
       busy = false; updateGo(); $('engine').textContent = '✅ Engine ready';
     });
+
+
+    // =====================================================================
+    // 🖼️ THUMBNAILS v2 — YouTube-style, real photo of your son (never AI-edited)
+    // =====================================================================
+    const FONT_URLS = {
+      Anton: 'https://raw.githubusercontent.com/google/fonts/main/ofl/anton/Anton-Regular.ttf',
+      Lucky: 'https://raw.githubusercontent.com/google/fonts/main/apache/luckiestguy/LuckiestGuy-Regular.ttf',
+      Bangers: 'https://raw.githubusercontent.com/google/fonts/main/ofl/bangers/Bangers-Regular.ttf',
+    };
+    let thumbFontsLoaded = false;
+    async function loadThumbFonts() {
+      if (thumbFontsLoaded) return;
+      for (const [name, url] of Object.entries(FONT_URLS)) {
+        try { document.fonts.add(await new FontFace(name, `url(${url})`).load()); } catch (e) { console.warn('font', name, e); }
+      }
+      await document.fonts.ready;
+      thumbFontsLoaded = true;
+    }
+    // small seeded random so "make different" gives new but repeatable looks
+    function rng(seed) { let x = (seed * 9301 + 49297) % 233280 || 1; return () => (x = (x * 9301 + 49297) % 233280) / 233280; }
+
+    // ---- 1. pick the most exciting frames ----
+    async function frameAt(src, t, w = 1280, h = 720) {
+      // PNG, not JPEG: the engine's JPEG encoder can crash the tab on large detailed frames
+      await aeRun(['-ss', Math.max(0, t).toFixed(2), '-i', src, '-frames:v', '1',
+        '-vf', `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h}`, '-c:v', 'png', '/aew/th.png']);
+      const d = await readAndDelete('/aew/th.png');
+      return createImageBitmap(new Blob([d.buffer], { type: 'image/png' }));
+    }
+    function excitement(bmp) {
+      // colourful + contrasty + detailed frames score higher (menus/loading screens score low)
+      const c = new OffscreenCanvas(64, 36), x = c.getContext('2d');
+      x.drawImage(bmp, 0, 0, 64, 36);
+      const d = x.getImageData(0, 0, 64, 36).data;
+      let sat = 0, lum = [], edges = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        const r = d[i], g = d[i + 1], b = d[i + 2], mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+        sat += mx ? (mx - mn) / mx : 0; lum.push(0.3 * r + 0.59 * g + 0.11 * b);
+      }
+      const mean = lum.reduce((a, b) => a + b, 0) / lum.length;
+      const sd = Math.sqrt(lum.reduce((a, b) => a + (b - mean) ** 2, 0) / lum.length);
+      for (let i = 1; i < lum.length; i++) if (i % 64) edges += Math.abs(lum[i] - lum[i - 1]);
+      const darkPenalty = mean < 35 ? 0.4 : 1;
+      return (sat / lum.length * 2 + sd / 64 + edges / lum.length / 20) * darkPenalty;
+    }
+    // where is the action? the most colourful + detailed area, avoiding given boxes (person, headline)
+    function hotspot(bmp, avoid = []) {
+      const GW = 32, GH = 18, c = new OffscreenCanvas(GW * 4, GH * 4), x = c.getContext('2d');
+      x.drawImage(bmp, 0, 0, GW * 4, GH * 4);
+      const d = x.getImageData(0, 0, GW * 4, GH * 4).data;
+      let best = { s: -1, x: 640, y: 400 };
+      for (let gy = 2; gy < GH - 2; gy++) for (let gx = 2; gx < GW - 2; gx++) {
+        const cx = (gx + 0.5) * 1280 / GW, cy = (gy + 0.5) * 720 / GH;
+        if (avoid.some(b => cx > b.x - 60 && cx < b.x + b.w + 60 && cy > b.y - 40 && cy < b.y + b.h + 40)) continue;
+        let sat = 0, sum = 0, sq = 0, n = 0;
+        for (let yy = gy * 4 - 4; yy < gy * 4 + 8; yy++) for (let xx = gx * 4 - 4; xx < gx * 4 + 8; xx++) {
+          const i = (yy * GW * 4 + xx) * 4, r = d[i], g = d[i + 1], b = d[i + 2], mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+          const l = 0.3 * r + 0.59 * g + 0.11 * b; sat += mx ? (mx - mn) / mx : 0; sum += l; sq += l * l; n++;
+        }
+        const sd = Math.sqrt(Math.max(0, sq / n - (sum / n) ** 2));
+        const score = sd / 40 + sat / n - Math.abs(cy - 380) / 1500;   // slight preference for the middle band
+        if (score > best.s) best = { s: score, x: cx, y: cy };
+      }
+      return best;
+    }
+    function candidateTimes(plan) {
+      const { pieces } = aeBuildPieces(plan);
+      const kept = t => pieces.some(p => p.type === 'src' && p.mode !== 'speed' && t >= p.a && t < p.b);
+      const ts = [];
+      for (const t of plan.thumbs || []) ts.push(t.time);
+      for (const h of plan.highlights.filter(h => h.on)) ts.push(h.time);
+      plan.segments.filter(x => x.action === 'keep').sort((a, b) => b.score - a.score).slice(0, 6)
+        .forEach(x => ts.push(x.start + (x.end - x.start) * 0.35, x.start + (x.end - x.start) * 0.7));
+      const out = [];
+      for (const t of ts) if (kept(t) && !out.some(o => Math.abs(o - t) < 4)) out.push(t);
+      return out.length ? out : [ae.dur * 0.3, ae.dur * 0.5, ae.dur * 0.7];
+    }
+
+    // ---- 2. AI thumbnail brief: game name + 3 headline ideas (one cheap request) ----
+    async function thumbBrief(plan, frames, variant) {
+      if (variant === 0 && plan.thumbBrief) return plan.thumbBrief;
+      const parts = [];
+      frames.forEach((f, i) => {
+        const c = new OffscreenCanvas(480, 270); c.getContext('2d').drawImage(f.bmp, 0, 0, 480, 270);
+        parts.push({ text: `Frame ${i}:` }, { _canvas: c });
+      });
+      const resolved = [];
+      for (const p of parts) {
+        if (p._canvas) {
+          const b = await p._canvas.convertToBlob({ type: 'image/jpeg', quality: 0.8 });
+          resolved.push({ inline_data: { mime_type: 'image/jpeg', data: await blobToBase64(b) } });
+        } else resolved.push(p);
+      }
+      resolved.push({ text: `THUMBNAIL BRIEF. These are frames from a kid's gaming YouTube video titled "${plan.title}".
+Best moments: ${plan.highlights.map(h => h.note).filter(Boolean).join('; ') || 'n/a'}.
+1) game: the name of the game shown (short, e.g. "Shark Simulator", "Minecraft"). Empty string if unsure.
+2) ideas: exactly 3 different thumbnail text ideas in the style of top kid gaming YouTubers. Each has:
+   - top: 1-4 small words that set up the joke/hook (e.g. "I'M A", "I USED A CHEAT CODE...", "I DID NOT EXPECT"). Can be empty.
+   - main: 1-2 HUGE words, the punchline (e.g. "SHARK!", "PLANE!", "THIS TO HAPPEN"). Max 14 characters.
+   - burst: a 1-2 word reaction for a comic bubble (e.g. "OMG!", "WOW!", "NO WAY!", "EPIC!").
+   - frame: which frame number (0-${frames.length - 1}) fits this idea best (prefer exciting, colorful action; avoid menus/loading screens).
+   Must be true to the video, kid-friendly, no emojis inside words. ${variant ? 'Make these DIFFERENT from typical first ideas: try new angles.' : ''}`});
+      const schema = { type: 'OBJECT', properties: {
+        game: { type: 'STRING' },
+        ideas: { type: 'ARRAY', items: { type: 'OBJECT', properties: {
+          top: { type: 'STRING' }, main: { type: 'STRING' }, burst: { type: 'STRING' }, frame: { type: 'INTEGER' } },
+          required: ['top', 'main', 'burst', 'frame'] } } }, required: ['game', 'ideas'] };
+      const text = await geminiRobust({ contents: [{ parts: resolved }],
+        generationConfig: { responseMimeType: 'application/json', responseSchema: schema, temperature: variant ? 1.0 : 0.7 } },
+        t => $('aeThumbStatus').textContent = '🤖 ' + t);
+      const brief = JSON.parse(text);
+      brief.ideas = (brief.ideas || []).slice(0, 3).map(i => ({
+        top: String(i.top || '').toUpperCase().slice(0, 30), main: String(i.main || '').toUpperCase().slice(0, 16),
+        burst: String(i.burst || 'OMG!').toUpperCase().slice(0, 10), frame: Math.max(0, Math.min(frames.length - 1, i.frame | 0)) }));
+      if (variant === 0) { plan.thumbBrief = brief; aeSave(); }
+      return brief;
+    }
+    function fallbackBrief(plan, frames) {
+      const ideas = [];
+      const base = (plan.thumbs || []).map(t => t.text).concat(plan.highlights.map(h => HL_TEXT[h.kind])).filter(Boolean);
+      for (let i = 0; i < 3; i++) {
+        const words = (base[i] || 'WATCH THIS!').toUpperCase().split(/\s+/);
+        ideas.push({ top: words.length > 1 ? words.slice(0, -1).join(' ') : '', main: words[words.length - 1], burst: ['OMG!', 'WOW!', 'NO WAY!'][i], frame: i % frames.length });
+      }
+      return { game: plan.game || '', ideas };
+    }
+
+    // ---- 3. drawing helpers ----
+    function fitFont(ctx, text, family, maxW, maxSize, minSize = 30) {
+      let size = maxSize;
+      for (; size > minSize; size -= 4) { ctx.font = `${size}px ${family}`; if (ctx.measureText(text).width <= maxW) break; }
+      return size;
+    }
+    function gradientText(ctx, text, x, y, size, family, colors, { stroke = '#000', strokeW = 0.2, outer = null, align = 'left', shadow = true } = {}) {
+      ctx.save();
+      ctx.font = `${size}px ${family}`; ctx.textAlign = align; ctx.textBaseline = 'alphabetic'; ctx.lineJoin = 'round'; ctx.miterLimit = 2;
+      if (outer) { ctx.lineWidth = size * (strokeW + 0.14); ctx.strokeStyle = outer; ctx.strokeText(text, x, y); }
+      if (shadow) { ctx.shadowColor = 'rgba(0,0,0,0.85)'; ctx.shadowOffsetX = size * 0.04; ctx.shadowOffsetY = size * 0.07; ctx.shadowBlur = size * 0.05; }
+      ctx.lineWidth = size * strokeW; ctx.strokeStyle = stroke; ctx.strokeText(text, x, y);
+      ctx.shadowColor = 'transparent';
+      const g = ctx.createLinearGradient(0, y - size * 0.85, 0, y);
+      colors.forEach((c, i) => g.addColorStop(i / (colors.length - 1), c));
+      ctx.fillStyle = g; ctx.fillText(text, x, y);
+      // glossy highlight on the top half
+      ctx.save(); ctx.beginPath(); ctx.rect(x - (align === 'center' ? 2000 : 0), y - size, 4000, size * 0.42); ctx.clip();
+      ctx.fillStyle = 'rgba(255,255,255,0.22)'; ctx.fillText(text, x, y); ctx.restore();
+      ctx.restore();
+    }
+    function brush(ctx, x, y, w, h, color, r, angle = 0) {
+      // rough paint-brush stroke behind text
+      ctx.save(); ctx.translate(x + w / 2, y + h / 2); ctx.rotate(angle);
+      ctx.fillStyle = color; ctx.beginPath();
+      const steps = 26;
+      for (let i = 0; i <= steps; i++) { const px = -w / 2 + w * i / steps; ctx.lineTo(px, -h / 2 + (r() - 0.5) * h * 0.25); }
+      ctx.lineTo(w / 2 + h * 0.25, (r() - 0.5) * h * 0.4);
+      for (let i = steps; i >= 0; i--) { const px = -w / 2 + w * i / steps; ctx.lineTo(px, h / 2 + (r() - 0.5) * h * 0.25); }
+      ctx.lineTo(-w / 2 - h * 0.3, (r() - 0.5) * h * 0.4);
+      ctx.closePath(); ctx.fill();
+      // splatter dots
+      for (let i = 0; i < 14; i++) { ctx.beginPath(); ctx.arc((r() - 0.5) * w * 1.15, (r() - 0.5) * h * 1.6, 3 + r() * 9, 0, 7); ctx.fill(); }
+      ctx.restore();
+    }
+    function swoosh(ctx, x1, y1, x2, y2, color = '#e11d2a', width = 18) {
+      ctx.save(); ctx.lineCap = 'round';
+      for (let i = 0; i < 3; i++) {
+        ctx.beginPath(); ctx.moveTo(x1 + i * 10, y1 + i * 3);
+        ctx.quadraticCurveTo((x1 + x2) / 2, Math.max(y1, y2) + 18, x2 - i * 18, y2 - i * 2);
+        ctx.lineWidth = width * (1 - i * 0.3); ctx.strokeStyle = color; ctx.stroke();
+      }
+      ctx.restore();
+    }
+    function curvedArrow(ctx, x1, y1, x2, y2, bend = -80, color = '#e11d2a') {
+      const cx = (x1 + x2) / 2 + bend, cy = (y1 + y2) / 2 - Math.abs(bend) * 0.4;
+      const a = Math.atan2(y2 - cy, x2 - cx);
+      const draw = (w, col) => {
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.quadraticCurveTo(cx, cy, x2 - Math.cos(a) * 30, y2 - Math.sin(a) * 30);
+        ctx.lineWidth = w; ctx.strokeStyle = col; ctx.lineCap = 'round'; ctx.stroke();
+        ctx.save(); ctx.translate(x2, y2); ctx.rotate(a);
+        ctx.beginPath(); ctx.moveTo(8 + w / 3, 0); ctx.lineTo(-44 - w / 3, -30 - w / 3); ctx.lineTo(-44 - w / 3, 30 + w / 3); ctx.closePath();
+        ctx.fillStyle = col; ctx.fill(); ctx.restore();
+      };
+      ctx.save(); ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 12;
+      draw(30, '#fff'); ctx.shadowColor = 'transparent'; draw(18, color); ctx.restore();
+    }
+    function burst(ctx, text, x, y, r, rand, colors = ['#e11d2a', '#ffd400']) {
+      ctx.save(); ctx.translate(x, y); ctx.rotate((rand() - 0.5) * 0.4);
+      const spikes = 14;
+      const star = (rad, col) => {
+        ctx.beginPath();
+        for (let i = 0; i < spikes * 2; i++) {
+          const rr = i % 2 ? rad * (0.62 + rand() * 0.1) : rad * (0.95 + rand() * 0.12), a = i * Math.PI / spikes;
+          ctx.lineTo(Math.cos(a) * rr * 1.25, Math.sin(a) * rr);
+        }
+        ctx.closePath(); ctx.fillStyle = col; ctx.fill();
+      };
+      ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 16; star(r + 12, '#000'); ctx.shadowColor = 'transparent';
+      star(r + 6, '#fff'); star(r, colors[0]);
+      const size = fitFont(ctx, text, 'Bangers', r * 1.9, r * 0.9);
+      gradientText(ctx, text, 0, size * 0.36, size, 'Bangers', ['#fff9c4', colors[1]], { align: 'center', strokeW: 0.16 });
+      ctx.restore();
+    }
+    function gameBadge(ctx, name, x, y, maxW) {
+      if (!name) return;
+      const words = name.toUpperCase().split(/\s+/);
+      const lines = words.length > 1 ? [words.slice(0, Math.ceil(words.length / 2)).join(' '), words.slice(Math.ceil(words.length / 2)).join(' ')] : words;
+      ctx.save();
+      const size = Math.min(...lines.map(l => fitFont(ctx, l, 'Anton', maxW - 40, 64)));
+      const h = lines.length * size * 1.05 + 30, w = Math.max(...lines.map(l => { ctx.font = `${size}px Anton`; return ctx.measureText(l).width; })) + 60;
+      // tilted yellow diamond-ish plate behind the name
+      ctx.translate(x + w / 2, y + h / 2); ctx.rotate(-0.06);
+      ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 18;
+      ctx.beginPath(); ctx.moveTo(-w / 2, -h / 2 + 8); ctx.lineTo(w / 2 - 10, -h / 2); ctx.lineTo(w / 2 + 8, h / 2 - 6); ctx.lineTo(-w / 2 + 12, h / 2); ctx.closePath();
+      const pg = ctx.createLinearGradient(0, -h / 2, 0, h / 2); pg.addColorStop(0, '#ffe14d'); pg.addColorStop(1, '#ffb400');
+      ctx.fillStyle = pg; ctx.fill(); ctx.shadowColor = 'transparent';
+      ctx.lineWidth = 7; ctx.strokeStyle = '#111'; ctx.stroke();
+      lines.forEach((l, i) => gradientText(ctx, l, 0, -h / 2 + 15 + size * 0.88 + i * size * 1.05, size, 'Anton',
+        ['#ffffff', '#e8f6ff'], { align: 'center', strokeW: 0.2, stroke: '#111', shadow: false }));
+      ctx.restore();
+    }
+    function lightRays(ctx, cx, cy, color, rand, alpha = 0.22) {
+      ctx.save(); ctx.globalCompositeOperation = 'screen'; ctx.translate(cx, cy);
+      for (let i = 0; i < 18; i++) {
+        const a = i / 18 * Math.PI * 2 + rand() * 0.2, w = 0.06 + rand() * 0.07;
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, 1500, a, a + w); ctx.closePath();
+        const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1100); g.addColorStop(0, color); g.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.globalAlpha = alpha; ctx.fillStyle = g; ctx.fill();
+      }
+      ctx.restore();
+    }
+    function drawPerson(ctx, face, cx, bottom, height, glow = '#00c8ff', maxW = 560) {
+      const bmp = face.bmp;
+      if (face.cutout) {
+        const s = Math.min(height / bmp.height, maxW / bmp.width), w = bmp.width * s; height = bmp.height * s;
+        const x = cx - w / 2, y = bottom - height;
+        // glow, thick white outline, then the untouched photo on top
+        const o = new OffscreenCanvas(Math.ceil(w) + 80, Math.ceil(height) + 80), ox = o.getContext('2d');
+        ox.drawImage(bmp, 40, 40, w, height);
+        ctx.save();
+        ctx.filter = `drop-shadow(0 0 28px ${glow}) drop-shadow(0 0 10px ${glow})`;
+        ctx.drawImage(o, x - 40, y - 40);
+        ctx.filter = 'drop-shadow(9px 0 0 #fff) drop-shadow(-9px 0 0 #fff) drop-shadow(0 9px 0 #fff) drop-shadow(0 -9px 0 #fff)';
+        ctx.drawImage(o, x - 40, y - 40);
+        ctx.filter = 'none';
+        ctx.drawImage(bmp, x, y, w, height);          // the real photo, unchanged
+        ctx.restore();
+        return { x, y, w, h: height };
+      }
+      // not a cut-out: rounded photo card with white border
+      const h = height * 0.62, w = h * bmp.width / bmp.height > h * 0.9 ? h * 0.9 : h * bmp.width / bmp.height, x = cx - w / 2, y = bottom - h - 30;
+      ctx.save(); ctx.shadowColor = glow; ctx.shadowBlur = 40;
+      ctx.beginPath(); ctx.roundRect(x - 10, y - 10, w + 20, h + 20, 28); ctx.fillStyle = '#fff'; ctx.fill(); ctx.restore();
+      ctx.save(); ctx.beginPath(); ctx.roundRect(x, y, w, h, 20); ctx.clip(); cover(ctx, bmp, x, y, w, h); ctx.restore();
+      return { x, y, w, h };
+    }
+    function background(ctx, frame, zoom, focusX, rand, tint) {
+      ctx.save();
+      ctx.filter = 'saturate(1.7) contrast(1.22) brightness(1.08)';
+      const s = Math.max(1280 / frame.width, 720 / frame.height) * zoom, iw = frame.width * s, ih = frame.height * s;
+      ctx.drawImage(frame, Math.min(0, Math.max(1280 - iw, 640 - iw * focusX)), (720 - ih) / 2, iw, ih);
+      ctx.restore();
+      // colour pop + vignette
+      ctx.save(); ctx.globalCompositeOperation = 'soft-light'; ctx.fillStyle = tint; ctx.fillRect(0, 0, 1280, 720); ctx.restore();
+      const v = ctx.createRadialGradient(640, 360, 300, 640, 360, 820);
+      v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,0.55)');
+      ctx.fillStyle = v; ctx.fillRect(0, 0, 1280, 720);
+    }
+    function headline(ctx, top, main, x, y, maxW, align, rand, palette) {
+      // small "set-up" line + HUGE punchline, brush stroke behind, red swoosh under
+      ctx.save(); ctx.translate(x, y); ctx.rotate(-0.06);
+      const mainSize = fitFont(ctx, main, 'Lucky', maxW, 175, 60);
+      ctx.font = `${mainSize}px Lucky`; const mainW = ctx.measureText(main).width;
+      const topSize = top ? fitFont(ctx, top, 'Lucky', Math.max(mainW, maxW * 0.7), Math.round(mainSize * 0.5), 34) : 0;
+      ctx.font = `${topSize}px Lucky`; const topW = top ? ctx.measureText(top).width : 0;
+      const blockW = Math.max(mainW, topW), ax = align === 'center' ? -blockW / 2 : align === 'right' ? -blockW : 0;
+      brush(ctx, ax - 30, -topSize - 20, blockW + 60, topSize + mainSize + 40, 'rgba(0,0,0,0.78)', rand, (rand() - 0.5) * 0.05);
+      if (top) gradientText(ctx, top, ax + (blockW - topW) / 2, 0, topSize, 'Lucky', ['#ffffff', '#d6f3ff'], { strokeW: 0.2 });
+      const my = topSize * 0.15 + mainSize * 0.92;
+      gradientText(ctx, main, ax + (blockW - mainW) / 2, my, mainSize, 'Lucky', palette, { strokeW: 0.2, outer: '#ffffff' });
+      swoosh(ctx, ax + (blockW - mainW) / 2, my + 26, ax + (blockW + mainW) / 2, my + 14);
+      ctx.restore();
+      return { w: blockW, h: topSize + mainSize };
+    }
+
+    // ---- 4. three layouts ----
+    const PALETTES = [['#fffbd1', '#ffe600', '#ff9500'], ['#ffffff', '#7fe3ff', '#0091ff'], ['#fff1f1', '#ffd400', '#ff3b30']];
+    const TINTS = ['rgba(0,150,255,0.25)', 'rgba(255,170,0,0.22)', 'rgba(255,0,140,0.18)'];
+    const GLOWS = ['#00c8ff', '#ffd400', '#ff3df2'];
+    function renderThumbV2(layout, frame, idea, game, face, logo, seed) {
+      const rand = rng(seed), c = document.createElement('canvas'); c.width = 1280; c.height = 720;
+      const ctx = c.getContext('2d');
+      const k = layout % 3, palette = PALETTES[(layout + seed) % 3], glow = GLOWS[(layout + seed) % 3];
+      const ring = (x, y, rx = 150, ry = 120) => { ctx.save(); ctx.beginPath(); ctx.ellipse(x, y, rx, ry, -0.1, 0, 7);
+        ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 14;
+        ctx.lineWidth = 24; ctx.strokeStyle = '#fff'; ctx.stroke(); ctx.shadowColor = 'transparent';
+        ctx.lineWidth = 14; ctx.strokeStyle = '#e11d2a'; ctx.stroke(); ctx.restore(); };
+      if (k === 0) {                                  // person LEFT, headline right, badge top-right
+        background(ctx, frame, 1.15, 0.62, rand, TINTS[seed % 3]);
+        lightRays(ctx, 320, 360, glow, rand);
+        const pb = face ? drawPerson(ctx, face, 320, 740, 700, glow, 560) : null;
+        headline(ctx, idea.top, idea.main, face ? 905 : 640, 500, face ? 620 : 1100, 'center', rand, palette);
+        gameBadge(ctx, game, 880, 34, 360);
+        burst(ctx, idea.burst, face ? Math.min(600, pb.x + pb.w + 10) : 1090, face ? 150 : 600, 76, rand);
+        drawLogo(ctx, logo, 1164, 614, 92);
+      } else if (k === 1) {                           // person RIGHT, headline left, arrow to the action
+        background(ctx, frame, 1.2, 0.35, rand, TINTS[(seed + 1) % 3]);
+        lightRays(ctx, 970, 360, glow, rand);
+        const pb = face ? drawPerson(ctx, face, 970, 740, 720, glow, 560) : { x: 1280, y: 0, w: 0, h: 0 };
+        const hs = hotspot(frame, [pb, { x: 0, y: 380, w: 760, h: 340 }, { x: 0, y: 0, w: 430, h: 170 }]);
+        headline(ctx, idea.top, idea.main, face ? 375 : 640, 530, face ? 650 : 1100, 'center', rand, palette);
+        gameBadge(ctx, game, 26, 26, 380);
+        ring(hs.x, hs.y, 120, 95);
+        const fromX = face ? pb.x - 20 : hs.x + 330, fromY = 140;
+        curvedArrow(ctx, fromX, fromY, hs.x + (fromX > hs.x ? 130 : -130), hs.y - 40, fromX > hs.x ? 70 : -70);
+        burst(ctx, idea.burst, face ? Math.max(pb.x + 10, 760) : 1090, face ? Math.max(pb.y + 40, 110) : 130, 70, rand, ['#ffd400', '#e11d2a']);
+        drawLogo(ctx, logo, 24, 614, 92);
+      } else {                                        // action circled, headline top, person bottom-right
+        background(ctx, frame, 1.3, 0.45, rand, TINTS[(seed + 2) % 3]);
+        if (face) lightRays(ctx, 1070, 500, glow, rand, 0.18);
+        const pb = face ? drawPerson(ctx, face, 1070, 740, 560, glow, 430) : { x: 1280, y: 720, w: 0, h: 0 };
+        const hs = hotspot(frame, [pb, { x: 60, y: 0, w: 1160, h: 280 }, { x: 0, y: 540, w: 400, h: 180 }]);
+        ring(hs.x, hs.y);
+        headline(ctx, idea.top, idea.main, 640, 150, 1060, 'center', rand, palette);
+        if (face) curvedArrow(ctx, pb.x + 20, pb.y + 40, hs.x + 150, hs.y, -60);
+        gameBadge(ctx, game, 24, 570, 330);
+        burst(ctx, idea.burst, hs.x < 640 ? Math.min(hs.x + 260, 820) : Math.max(hs.x - 260, 160), Math.min(hs.y + 150, 600), 66, rand);
+      }
+      return c;
+    }
+
+    // ---- 5. put it together ----
+    async function aeMakeThumbsV2(variant = 0) {
+      $('aeThumbBox').style.display = 'block';
+      $('aeThumbStatus').textContent = '⚙️ Loading fonts...';
+      await loadThumbFonts();
+      const plan = ae.plan, src = await aeMount();
+      // candidate frames, scored for excitement
+      const times = candidateTimes(plan);
+      const off = variant ? (variant % 2 ? 1.5 : -1.5) : 0;
+      const frames = [];
+      for (const t of times.slice(variant * 2 % Math.max(1, times.length - 4)).slice(0, 8)) {
+        $('aeThumbStatus').textContent = `⚙️ Finding the most exciting frames... ${frames.length + 1}`;
+        try { const bmp = await frameAt(src, Math.min(ae.dur - 0.5, Math.max(0, t + off))); frames.push({ t, bmp, score: excitement(bmp) }); } catch (e) { console.warn(e); }
+      }
+      if (!frames.length) throw new Error('Could not read frames from the video.');
+      frames.sort((a, b) => b.score - a.score);
+      const top = frames.slice(0, Math.min(5, frames.length));
+      let brief;
+      try { brief = await thumbBrief(plan, top, variant); }
+      catch (e) { console.warn('brief failed, using fallback', e); brief = fallbackBrief(plan, top); }
+      if (brief.game && !plan.game) { plan.game = brief.game; aeSave(); $('aeGame').value = plan.game; }
+      const game = (plan.game || brief.game || '').trim();
+      const { faces, logo } = await loadFaces();
+      $('aeThumbStatus').textContent = '🎨 Designing thumbnails...';
+      aeThumbBlobs = [];
+      for (let i = 0; i < 3; i++) {
+        const idea = brief.ideas[i] || fallbackBrief(plan, top).ideas[i];
+        // use each frame once where possible
+        const fi = (idea.frame !== undefined && top[idea.frame] && !aeThumbBlobs.usedFrames?.includes(idea.frame)) ? idea.frame : i % top.length;
+        (aeThumbBlobs.usedFrames ||= []).push(fi);
+        const face = faces.length ? faces[(i + variant) % faces.length] : null;
+        const c = renderThumbV2(i + variant, top[fi].bmp, idea, game, face, logo, variant * 7 + i + 1);
+        aeThumbBlobs.push(await canvasToJpeg(c));
+      }
+      aeThumbPick = 0;
+      aeShowThumbs();
+      $('aeThumbStatus').textContent = faces.length ? '' :
+        '💡 Tip: add cut-out photos of your son (background removed, PNG) to the Library and tag them "face" for the best look.';
+      return faces.length;
+    }
+    aeMakeThumbs = aeMakeThumbsV2;
+
+    // game name field
+    $('aeGame').onchange = e => { ae.plan.game = e.target.value.trim(); aeSave(); };
+    const _rr2 = aeRenderReview;
+    aeRenderReview = function () { _rr2(); $('aeGame').value = ae.plan.game || ''; $('aeThumbOnly').disabled = busy || !ae.plan || !ae.file; };
+    window.aeRenderReview = aeRenderReview;
+    const _up2 = window.aeUpdate;
+    window.aeUpdate = () => { _up2(); $('aeThumbOnly').disabled = busy || !ae.plan || !ae.file; };
+
+    // thumbnails without rendering the video
+    $('aeThumbOnly').onclick = async () => {
+      if (busy || !ae.plan) return;
+      busy = true; updateGo(); $('engine').textContent = '⚙️ Making thumbnails...';
+      try { aeThumbVariant = 0; await aeMakeThumbsV2(0); $('aeThumbBox').scrollIntoView({ behavior: 'smooth' }); }
+      catch (e) { console.error(e); $('aeThumbStatus').textContent = '❌ ' + (e?.message || e); }
+      busy = false; updateGo(); $('engine').textContent = '✅ Engine ready';
+    };
+    $('aeThumbRedo').onclick = async () => {
+      if (busy) return;
+      busy = true; updateGo(); $('aeThumbRedo').disabled = true;
+      try { aeThumbVariant++; await aeMakeThumbsV2(aeThumbVariant); }
+      catch (e) { console.error(e); $('aeThumbStatus').textContent = '❌ ' + e.message; }
+      busy = false; updateGo(); $('aeThumbRedo').disabled = false;
+    };
+    // click a thumbnail to see it full size
+    $('aeThumbs').addEventListener('click', e => { if (e.target.tagName === 'IMG') window.open(e.target.src, '_blank'); });
   </script>
 </body>
 </html>
