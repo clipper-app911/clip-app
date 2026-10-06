@@ -42,6 +42,13 @@
     #zipBtn { display: none; background: #16a34a; }
     .hint { color: #999; font-size: 0.85rem; }
     details { margin-top: 16px; }
+    .brand-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 10px; }
+    @media (max-width: 800px) { .brand-grid { grid-template-columns: 1fr; } }
+    .brand-grid > div { display: flex; flex-direction: column; gap: 8px; }
+    .brand-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: #bbb; }
+    .brand-grid select, .brand-grid input { padding: 6px; background: #222; color: #eee; border: 1px solid #444; border-radius: 4px; }
+    .brand-grid video { width: 100%; aspect-ratio: 16/9; background: #000; border-radius: 6px; display: none; }
+    .brand-title { font-weight: bold; font-size: 0.9rem; }
     .upload-btn { background: #2563eb; color: #fff; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: bold; }
     .drop { border: 2px dashed #444; border-radius: 8px; padding: 18px; text-align: center; color: #888; margin: 8px 0; }
     .drop.over { border-color: #2563eb; color: #6cf; background: #172033; }
@@ -110,11 +117,33 @@
     <!-- 📚 LIBRARY -->
     <section id="view-library" class="view">
       <h1>📚 Library</h1>
-      <p class="hint">Your memes, sound effects and royalty-free music, saved in this browser.</p>
+      <p class="hint">Your channel images, memes, sound effects and royalty-free music, saved in this browser.</p>
+
+      <div class="box" id="brandBox">
+        <b>🎬 Channel intro & outro</b> <span class="hint">(added to every Auto-Edit video, not to Shorts/Reels)</span>
+        <div class="brand-grid">
+          <div>
+            <div class="brand-title">Intro (3.5s) · banner pops in</div>
+            <label>Banner image <select id="brIntroImg"></select></label>
+            <label>Intro sound <select id="brIntroSnd"></select></label>
+            <button id="brIntroBtn">▶ Preview intro</button>
+            <video id="brIntroVid" controls></video>
+          </div>
+          <div>
+            <div class="brand-title">Outro (10s) · logo + Like / Comment / Subscribe</div>
+            <label>Logo image <select id="brOutroImg"></select></label>
+            <label>Outro music <select id="brOutroSnd"></select></label>
+            <label>Bottom line <input type="text" id="brOutroLine" maxlength="40"></label>
+            <button id="brOutroBtn">▶ Preview outro</button>
+            <video id="brOutroVid" controls></video>
+          </div>
+        </div>
+        <div id="brStatus" class="hint"></div>
+      </div>
       <div class="box">
         <div class="row">
-          <label class="upload-btn">➕ Add files<input type="file" id="libFiles" multiple accept="video/*,audio/*,image/gif" hidden></label>
-          <span class="hint">Videos → Meme clips · audio under 15s → Sound effects · longer audio → Music</span>
+          <label class="upload-btn">➕ Add files<input type="file" id="libFiles" multiple accept="video/*,audio/*,image/*" hidden></label>
+          <span class="hint">Select many at once. Photos → Images · videos/GIFs → Meme clips · audio under 15s → Sound effects · longer audio → Music</span>
         </div>
         <div id="libDrop" class="drop">or drag & drop files here</div>
         <div id="libStatus" class="hint"></div>
@@ -126,6 +155,7 @@
           <button data-type="meme">🎞️ Meme clips</button>
           <button data-type="sfx">🔊 Sound effects</button>
           <button data-type="music">🎵 Music</button>
+          <button data-type="image">🖼️ Images</button>
         </div>
         <input type="text" id="libSearch" placeholder="🔍 Search name or tag..." style="flex:1;min-width:180px;">
       </div>
@@ -647,7 +677,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     // 📚 LIBRARY (stored in this browser with IndexedDB)
     // =====================================================================
     const QUICK_TAGS = ['funny', 'fail', 'win', 'shocked', 'bruh', 'hype', 'sad', 'scary', 'rage', 'victory', 'intro', 'outro'];
-    const TYPE_LABEL = { meme: '🎞️ Meme clip', sfx: '🔊 Sound effect', music: '🎵 Music' };
+    const TYPE_LABEL = { meme: '🎞️ Meme clip', sfx: '🔊 Sound effect', music: '🎵 Music', image: '🖼️ Image' };
     let libItems = [], libFilter = 'all', libURLs = [];
 
     function libDB() {
@@ -695,8 +725,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         el.src = url;
       });
     }
+    function imageSize(file) {
+      return new Promise(ok => {
+        const img = new Image(), url = URL.createObjectURL(file);
+        img.onload = () => { URL.revokeObjectURL(url); ok({ width: img.naturalWidth, height: img.naturalHeight }); };
+        img.onerror = () => { URL.revokeObjectURL(url); ok({}); };
+        img.src = url;
+      });
+    }
     function guessType(file, dur) {
-      if (file.type.startsWith('video/') || file.type.startsWith('image/')) return 'meme';
+      if (file.type === 'image/gif' || file.type.startsWith('video/')) return 'meme';
+      if (file.type.startsWith('image/')) return 'image';
       return dur > 0 && dur < 15 ? 'sfx' : 'music';
     }
     function guessTags(name) {
@@ -705,19 +744,20 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     }
 
     async function libAddFiles(files) {
-      files = [...files].filter(f => /^(video|audio)\//.test(f.type) || f.type === 'image/gif');
-      if (!files.length) { $('libStatus').textContent = '❌ Only video, audio or GIF files can be added.'; return; }
+      files = [...files].filter(f => /^(video|audio|image)\//.test(f.type));
+      if (!files.length) { $('libStatus').textContent = '❌ Only photo, video or audio files can be added.'; return; }
       let added = 0;
       for (const f of files) {
         $('libStatus').textContent = `Adding ${added + 1}/${files.length}: ${f.name}...`;
         try {
           const dur = await mediaDuration(f);
+          const dims = f.type.startsWith('image/') ? await imageSize(f) : {};
           await libPut({
             id: (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random()),
             name: f.name.replace(/\.[^.]+$/, ''),
             fileName: f.name, mime: f.type, size: f.size,
             duration: dur, type: guessType(f, dur), tags: guessTags(f.name),
-            added: Date.now(), blob: f,
+            added: Date.now(), blob: f, ...dims,
           });
           added++;
         } catch (e) {
@@ -745,7 +785,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
       const shown = libItems.filter(i =>
         (libFilter === 'all' || i.type === libFilter) &&
         (!q || i.name.toLowerCase().includes(q) || i.tags.some(t => t.includes(q))));
-      const counts = { all: libItems.length, meme: 0, sfx: 0, music: 0 };
+      const counts = { all: libItems.length, meme: 0, sfx: 0, music: 0, image: 0 };
       libItems.forEach(i => counts[i.type]++);
       document.querySelectorAll('#libTabs button').forEach(b => {
         b.textContent = b.textContent.replace(/ \(\d+\)$/, '') + ` (${counts[b.dataset.type]})`;
@@ -791,6 +831,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         grid.appendChild(card);
       }
       libUsage();
+      if (window.brandRefresh) brandRefresh();
     }
 
     $('libFiles').addEventListener('change', e => { libAddFiles(e.target.files); e.target.value = ''; });
@@ -808,6 +849,161 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     // Ask the browser to protect the library from automatic cleanup
     if (navigator.storage?.persist) navigator.storage.persist().finally(libUsage);
     libRender().catch(e => { console.error(e); $('libStatus').textContent = '❌ Library storage unavailable: ' + (e?.message || e); });
+
+
+    // =====================================================================
+    // 🎬 CHANNEL INTRO & OUTRO (generated from Library images)
+    // =====================================================================
+    const BRAND_DEFAULTS = { introImg: '', introSnd: '', outroImg: '', outroSnd: '', outroLine: 'NEW VIDEOS EVERY DAY' };
+    let brand = { ...BRAND_DEFAULTS, ...(JSON.parse(LS.get('branding') || '{}')) };
+    const saveBrand = () => LS.set('branding', JSON.stringify(brand));
+    const FONT = '/fonts/Anton-Regular.ttf';
+
+    window.brandRefresh = async () => {
+      const all = await libAll();
+      const images = all.filter(i => i.type === 'image');
+      const sounds = all.filter(i => i.type === 'sfx' || i.type === 'music');
+      const ratio = i => (i.width && i.height) ? i.width / i.height : 1;
+      // auto-pick: widest image = banner, most square image = logo
+      if (!images.find(i => i.id === brand.introImg) && images.length)
+        brand.introImg = [...images].sort((a, b) => ratio(b) - ratio(a))[0].id;
+      if (!images.find(i => i.id === brand.outroImg) && images.length)
+        brand.outroImg = [...images].sort((a, b) => Math.abs(ratio(a) - 1) - Math.abs(ratio(b) - 1))[0].id;
+      if (!sounds.find(i => i.id === brand.introSnd)) brand.introSnd = '';
+      if (!sounds.find(i => i.id === brand.outroSnd)) brand.outroSnd = '';
+      saveBrand();
+      const imgOpts = sel => images.length
+        ? images.map(i => `<option value="${i.id}" ${i.id === sel ? 'selected' : ''}>${i.name}${i.width ? ` (${i.width}×${i.height})` : ''}</option>`).join('')
+        : '<option value="">(add images to the Library first)</option>';
+      const sndOpts = sel => '<option value="">None (silent)</option>' +
+        sounds.map(i => `<option value="${i.id}" ${i.id === sel ? 'selected' : ''}>${TYPE_LABEL[i.type]}: ${i.name}</option>`).join('');
+      $('brIntroImg').innerHTML = imgOpts(brand.introImg);
+      $('brOutroImg').innerHTML = imgOpts(brand.outroImg);
+      $('brIntroSnd').innerHTML = sndOpts(brand.introSnd);
+      $('brOutroSnd').innerHTML = sndOpts(brand.outroSnd);
+      $('brOutroLine').value = brand.outroLine;
+    };
+    $('brIntroImg').onchange = e => { brand.introImg = e.target.value; saveBrand(); };
+    $('brOutroImg').onchange = e => { brand.outroImg = e.target.value; saveBrand(); };
+    $('brIntroSnd').onchange = e => { brand.introSnd = e.target.value; saveBrand(); };
+    $('brOutroSnd').onchange = e => { brand.outroSnd = e.target.value; saveBrand(); };
+    $('brOutroLine').onchange = e => { brand.outroLine = e.target.value.trim(); saveBrand(); };
+
+    async function libGet(id) { return (await libAll()).find(i => i.id === id); }
+    async function fsWriteItem(item, name) {
+      const ext = (item.fileName.match(/\.[^.]+$/) || ['.bin'])[0].toLowerCase();
+      const path = `/brand/${name}${ext}`;
+      await ffmpeg.writeFile(path, new Uint8Array(await item.blob.arrayBuffer()));
+      return path;
+    }
+    async function ensureBrandDir() { try { await ffmpeg.createDir('/brand'); } catch {} }
+    async function runFF(args) {
+      const before = $('log').textContent.length;
+      const code = await ffmpeg.exec(args);
+      if (code !== 0) {
+        const tail = $('log').textContent.slice(before).trim().split('\n').slice(-4).join(' | ');
+        throw new Error('ffmpeg failed: ' + tail);
+      }
+    }
+    // audio input args + filter for an optional sound, padded/trimmed to dur seconds
+    async function audioPart(sndId, dur, inputIndex) {
+      const item = sndId && await libGet(sndId);
+      if (!item) return { args: ['-f', 'lavfi', '-t', String(dur), '-i', 'anullsrc=r=44100:cl=stereo'], filter: `[${inputIndex}:a]anull[aout]` };
+      const path = await fsWriteItem(item, 'snd_' + inputIndex);
+      return { args: ['-i', path],
+        filter: `[${inputIndex}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,apad,atrim=0:${dur},afade=t=out:st=${dur - 0.5}:d=0.5[aout]` };
+    }
+
+    // Exposed for Auto-Edit: returns an MP4 Blob (1280x720 by default)
+    window.makeIntro = async (w = 1280, h = 720) => {
+      const item = await libGet(brand.introImg);
+      if (!item) throw new Error('Pick a banner image for the intro.');
+      await ensureBrandDir();
+      const img = await fsWriteItem(item, 'intro_img');
+      const D = 3.5;
+      const aud = await audioPart(brand.introSnd, D, 2);
+      await runFF([
+        '-loop', '1', '-t', String(D), '-framerate', '30', '-i', img,
+        '-loop', '1', '-t', String(D), '-framerate', '30', '-i', img,
+        ...aud.args,
+        '-filter_complex',
+        `[0]scale=-2:720,crop=1280:720,boxblur=20:2,eq=brightness=-0.25[bg];` +
+        `[1]scale=w='1280*min(1\\,0.75+0.5*t)':h=-2:eval=frame[fg];` +
+        `[bg][fg]overlay=x=(W-w)/2:y=(H-h)/2:eval=frame,fade=t=in:st=0:d=0.3,fade=t=out:st=${D - 0.4}:d=0.4,scale=${w}:${h},setsar=1,format=yuv420p[v];` +
+        aud.filter,
+        '-map', '[v]', '-map', '[aout]', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23', '-r', '30',
+        '-c:a', 'aac', '-b:a', '128k', '-shortest', '-movflags', '+faststart', '/brand/intro.mp4',
+      ]);
+      const data = await ffmpeg.readFile('/brand/intro.mp4');
+      return new Blob([data.buffer], { type: 'video/mp4' });
+    };
+
+    window.makeOutro = async (w = 1280, h = 720) => {
+      const item = await libGet(brand.outroImg);
+      if (!item) throw new Error('Pick a logo image for the outro.');
+      await ensureBrandDir();
+      const img = await fsWriteItem(item, 'outro_img');
+      const bgItem = await libGet(brand.introImg) || item;
+      const bg = bgItem.id === item.id ? img : await fsWriteItem(bgItem, 'outro_bg');
+      // round logo with transparent corners
+      await runFF(['-i', img, '-vf',
+        `scale=440:440:force_original_aspect_ratio=increase,crop=440:440,format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lte(hypot(X-220,Y-220),214),255,0)'`,
+        '-frames:v', '1', '/brand/logo.png']);
+      const lines = ['THANKS FOR WATCHING!', 'LIKE • COMMENT • SUBSCRIBE', 'SUBSCRIBE', (brand.outroLine || '').toUpperCase()];
+      for (let i = 0; i < lines.length; i++) await ffmpeg.writeFile(`/brand/t${i + 1}.txt`, lines[i]);
+      const D = 10;
+      const aud = await audioPart(brand.outroSnd, D, 2);
+      const T = (n, size, color, x, y, extra = '') =>
+        `drawtext=fontfile=${FONT}:textfile=/brand/t${n}.txt:fontsize=${size}:fontcolor=${color}:x=${x}:y=${y}${extra}`;
+      await runFF([
+        '-loop', '1', '-t', String(D), '-framerate', '30', '-i', bg,
+        '-loop', '1', '-t', String(D), '-framerate', '30', '-i', '/brand/logo.png',
+        ...aud.args,
+        '-filter_complex',
+        `[0]scale=-2:720,crop=1280:720,boxblur=20:2,eq=brightness=-0.3[bg];` +
+        `[1]scale=w='440*(0.85+0.15*min(1\\,t/0.4))':h=-1:eval=frame[lg];` +
+        `[bg][lg]overlay=x=330-w/2:y=360-h/2:eval=frame[a];` +
+        `[a]` + [
+          T(1, 72, '0xFFE500', 620, 170, ':borderw=5:bordercolor=black'),
+          T(2, 48, 'white', 620, 275, ':borderw=4:bordercolor=black'),
+          `drawbox=x=620:y=375:w=360:h=92:color=0xE62117@1:t=fill`,
+          `drawbox=x=612:y=367:w=376:h=108:color=0xFF4444@0.5:t=6:enable='between(mod(t\\,1.2)\\,0.6\\,0.9)'`,
+          T(3, 58, 'white', '620+(360-text_w)/2', '375+(92-text_h)/2'),
+          ...(brand.outroLine ? [T(4, 36, '0x6CCFFF', 620, 505, ':borderw=3:bordercolor=black')] : []),
+          `fade=t=in:st=0:d=0.5,fade=t=out:st=${D - 0.5}:d=0.5,scale=${w}:${h},setsar=1,format=yuv420p[v]`,
+        ].join(',') + ';' + aud.filter,
+        '-map', '[v]', '-map', '[aout]', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23', '-r', '30',
+        '-c:a', 'aac', '-b:a', '128k', '-shortest', '-movflags', '+faststart', '/brand/outro.mp4',
+      ]);
+      const data = await ffmpeg.readFile('/brand/outro.mp4');
+      return new Blob([data.buffer], { type: 'video/mp4' });
+    };
+
+    async function brandPreview(which) {
+      if (!ffmpeg.loaded) { $('brStatus').textContent = '⏳ Engine still loading...'; return; }
+      if (busy) { $('brStatus').textContent = '⏳ The engine is busy with another job. Try again when it finishes.'; return; }
+      busy = true; updateGo();
+      $('brIntroBtn').disabled = $('brOutroBtn').disabled = true;
+      $('brStatus').textContent = `⚙️ Making ${which}...`;
+      const t0 = performance.now();
+      try {
+        const blob = which === 'intro' ? await makeIntro() : await makeOutro();
+        const vid = $(which === 'intro' ? 'brIntroVid' : 'brOutroVid');
+        if (vid.src) URL.revokeObjectURL(vid.src);
+        vid.src = URL.createObjectURL(blob);
+        vid.style.display = 'block';
+        vid.play().catch(() => {});
+        $('brStatus').textContent = `✅ ${which[0].toUpperCase() + which.slice(1)} ready in ${((performance.now() - t0) / 1000).toFixed(1)}s`;
+      } catch (e) {
+        console.error(e);
+        $('brStatus').textContent = '❌ ' + (e?.message || e);
+      }
+      busy = false; updateGo();
+      $('brIntroBtn').disabled = $('brOutroBtn').disabled = false;
+    }
+    $('brIntroBtn').onclick = () => brandPreview('intro');
+    $('brOutroBtn').onclick = () => brandPreview('outro');
+    brandRefresh();
   </script>
 </body>
 </html>
