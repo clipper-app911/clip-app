@@ -1676,11 +1676,24 @@ ${TITLE_RULES}`;
     }
 
     // ---- extend the review screen: title picker, description preview ----
+    // plans saved by older versions of the app miss newer fields: fill them in so nothing breaks
+    function aeUpgradePlan(plan) {
+      plan.segments = plan.segments || [];
+      plan.highlights = (plan.highlights || []).map(h => ({ on: true, ...h }));
+      plan.music = plan.music || [];
+      plan.tags = plan.tags || [];
+      plan.chapters = plan.chapters || [];
+      plan.thumbs = plan.thumbs || [];
+      plan.description = plan.description || '';
+      plan.title = plan.title || '';
+      plan.titles = plan.titles && plan.titles.length ? plan.titles : (plan.title ? [plan.title] : []);
+      return plan;
+    }
     const _aeRenderReviewBase = aeRenderReview;
     aeRenderReview = function () {
+      const plan = aeUpgradePlan(ae.plan);
+      $('aeRender').disabled = busy || !ae.plan || !ae.file;      // set first, so a display problem can never lock the button
       _aeRenderReviewBase();
-      const plan = ae.plan;
-      if (!plan.titles) plan.titles = plan.title ? [plan.title] : [];
       const box = $('aeTitleOpts'); box.innerHTML = '';
       plan.titles.forEach(t => {
         const b = document.createElement('button');
@@ -1690,8 +1703,9 @@ ${TITLE_RULES}`;
         box.appendChild(b);
       });
       $('aeTitle').value = plan.title;
-      $('aeFullDesc').value = aeFullDescription(plan);
-      $('aeRender').disabled = busy || !ae.plan;
+      try { $('aeFullDesc').value = aeFullDescription(plan); }
+      catch (e) { console.error(e); $('aeFullDesc').value = plan.description; }
+      if (plan.titles.length <= 1) $('aeMoreTitles').textContent = '✨ Get 3+ catchy title ideas';
     };
     window.aeRenderReview = aeRenderReview;
     $('aeTitle').oninput = e => { ae.plan.title = e.target.value; aeSave(); };
