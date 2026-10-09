@@ -141,6 +141,16 @@
               <option value="1080:1920">1080×1920 (much slower)</option>
             </select>
           </label>
+          <label>Clip length:
+            <select id="clipMin">
+              <option value="60">min 1:00</option><option value="80" selected>min 1:20</option>
+              <option value="90">min 1:30</option><option value="120">min 2:00</option>
+            </select>
+            <select id="clipMax">
+              <option value="100">max 1:40</option><option value="120" selected>max 2:00</option>
+              <option value="150">max 2:30</option><option value="180">max 3:00</option>
+            </select>
+          </label>
         </div>
         <div class="row">
           <button id="goBtn" class="big" disabled>✨ Generate 10 clips</button>
@@ -619,7 +629,8 @@
 Pick the ${NUM_CLIPS} BEST moments to turn into vertical YouTube Shorts and Facebook Reels that will get the most views and comments.
 
 Rules for each clip:
-- 25 to 55 seconds long. Clips must NOT overlap. All start/end times are in seconds from the start of the FULL video.
+- ${clipLen().min} to ${clipLen().max} seconds long (NEVER shorter than ${clipLen().min} seconds). Clips must NOT overlap. All start/end times are in seconds from the start of the FULL video.
+- A longer clip should still tell one complete mini-story: hook, build-up, payoff.
 - Start on a strong hook within the first 2 seconds (a bold statement, surprising fact, question, or striking visual). Never start mid-sentence.
 - End at a natural pause (end of a sentence/thought). The last ${CTA_SECONDS} seconds will be covered by a call-to-action, so do not end on the key line.
 - Prefer moments that make sense on their own without the rest of the video.
@@ -671,17 +682,52 @@ Return the clips in the order they appear in the video.`;
       return cleanPlan(JSON.parse(text));
     }
 
+    // clip length setting (saved in this browser)
+    function clipLen() {
+      let min = +$('clipMin').value, max = +$('clipMax').value;
+      if (max < min) max = min;
+      return { min: Math.min(min, duration || min), max: Math.min(max, duration || max) };
+    }
+    ['clipMin', 'clipMax'].forEach(id => {
+      const saved = LS.get(id); if (saved) $(id).value = saved;
+      $(id).addEventListener('change', () => LS.set(id, $(id).value));
+    });
+
     function cleanPlan(raw) {
+      const { min, max } = clipLen();
       let clips = (raw.clips || []).map(c => {
         let start = Math.max(0, Number(c.start) || 0);
-        let end = Math.min(duration, Number(c.end) || start + 30);
-        if (end - start < 12) end = Math.min(duration, start + 30);
-        if (end - start > 90) end = start + 90;
-        return { ...c, start, end, len: end - start, captions: Array.isArray(c.captions) ? c.captions : [] };
-      }).filter(c => c.len >= 12).sort((a, b) => a.start - b.start);
-      // drop overlaps
+        let end = Math.min(duration, Number(c.end) || start + min);
+        if (end <= start) end = Math.min(duration, start + min);
+        return { ...c, start, end, captions: Array.isArray(c.captions) ? c.captions : [] };
+      }).sort((a, b) => a.start - b.start);
+      // make every clip at least `min` long: grow the end first (more payoff), then the start
+      for (const c of clips) {
+        if (c.end - c.start > max) c.end = c.start + max;
+        if (c.end - c.start < min) {
+          c.end = Math.min(duration, c.start + min);
+          if (c.end - c.start < min) {
+            const shift = Math.min(c.start, min - (c.end - c.start));
+            c.start -= shift;
+            // captions are relative to the clip start, so move them along
+            c.captions = c.captions.map(x => ({ ...x, start: (+x.start || 0) + shift, end: (+x.end || 0) + shift }));
+          }
+        }
+        c.len = c.end - c.start;
+      }
+      // drop clips that mostly repeat an earlier one (stretching can make neighbours overlap)
       const out = [];
-      for (const c of clips) if (!out.length || c.start >= out[out.length - 1].end - 0.5) out.push(c);
+      for (const c of clips) {
+        const prev = out[out.length - 1];
+        const overlap = prev ? Math.max(0, prev.end - c.start) : 0;
+        if (overlap > c.len * 0.35) continue;
+        if (overlap > 0) {                       // small overlap: trim this clip's start, keep it long enough
+          const cut = Math.min(overlap, Math.max(0, c.len - min));
+          c.start += cut; c.len = c.end - c.start;
+          c.captions = c.captions.map(x => ({ ...x, start: (+x.start || 0) - cut, end: (+x.end || 0) - cut })).filter(x => x.end > 0);
+        }
+        out.push(c);
+      }
       if (!out.length) throw new Error('AI returned no usable clips. Try again.');
       return { clips: out.slice(0, NUM_CLIPS) };
     }
@@ -765,21 +811,22 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
       try {
         await mountInput();
 
-        const cacheKey = `plan:${file.name}:${file.size}`;
+        const cacheKey = `plan:${file.name}:${file.size}:${clipLen().min}-${clipLen().max}`;
         const cached = LS.get(cacheKey);
         if (cached) {
           plan = JSON.parse(cached);
           step(`Reusing saved AI plan for this video (${plan.clips.length} clips)`, 'done');
         } else {
           let st;
-          if (mediaCache.key !== cacheKey) {
+          const mediaKey = `${file.name}:${file.size}`;   // audio + snapshots don't depend on clip length
+          if (mediaCache.key !== mediaKey) {
             st = step('Extracting audio...');
             const audio = await extractAudio(st);
             st.done(`Audio extracted (${(audio.data.length / 1024 / 1024).toFixed(1)} MB at ${audio.kbps} kbps)`);
             st = step('Taking snapshots...');
             const frames = await extractFrames(st);
             st.done(`${frames.length} snapshots taken`);
-            mediaCache = { key: cacheKey, audio, frames };
+            mediaCache = { key: mediaKey, audio, frames };
           } else {
             step('Reusing audio + snapshots from last try', 'done');
           }
